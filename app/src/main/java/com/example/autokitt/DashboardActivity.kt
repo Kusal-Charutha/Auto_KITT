@@ -1,0 +1,142 @@
+package com.example.autokitt
+
+import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
+import android.os.Bundle
+import android.widget.Button
+import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.core.content.ContextCompat
+import com.google.android.material.snackbar.Snackbar
+import android.content.res.ColorStateList
+import android.view.View
+import android.media.RingtoneManager
+import android.net.Uri
+
+class DashboardActivity : ComponentActivity() {
+
+    private lateinit var tvRpm: TextView
+    private lateinit var tvSpeed: TextView
+    private lateinit var tvLoad: TextView
+    private lateinit var tvTemp: TextView
+    private lateinit var tvStatus: TextView
+    private lateinit var viewStatusDot: View
+    private lateinit var tvDrivingStatus: TextView
+    private lateinit var tvVehicleModel: TextView
+    
+    private var lastAlertTime: Long = 0L
+
+    private val dataReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                OBDForegroundService.ACTION_OBD_DATA -> {
+                    val rpm = intent.getDoubleExtra(OBDForegroundService.EXTRA_RPM, 0.0)
+                    val speed = intent.getDoubleExtra(OBDForegroundService.EXTRA_SPEED, 0.0)
+                    val load = intent.getDoubleExtra(OBDForegroundService.EXTRA_LOAD, 0.0)
+                    val temp = intent.getDoubleExtra(OBDForegroundService.EXTRA_TEMP, 0.0)
+
+                    tvRpm.text = String.format("%.0f", rpm)
+                    tvSpeed.text = String.format("%.0f", speed)
+                    tvLoad.text = String.format("%.1f%%", load)
+                    tvTemp.text = String.format("%.0f", temp)
+                    tvStatus.text = "Connected - Streaming Data"
+                    tvStatus.setTextColor(ContextCompat.getColor(context, R.color.success_green))
+                    viewStatusDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(context, R.color.success_green))
+                }
+                OBDForegroundService.ACTION_OBD_CONNECTED -> {
+                    tvStatus.text = "Connected!"
+                    tvStatus.setTextColor(ContextCompat.getColor(context, R.color.blue_primary))
+                    viewStatusDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(context, R.color.blue_primary))
+                }
+                OBDForegroundService.ACTION_OBD_DISCONNECTED -> {
+                    tvStatus.text = "Disconnected"
+                    tvStatus.setTextColor(ContextCompat.getColor(context, R.color.danger_red))
+                    viewStatusDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(context, R.color.danger_red))
+                }
+                OBDForegroundService.ACTION_BEHAVIOR_ALERT -> {
+                    val isAggressive = intent.getBooleanExtra(OBDForegroundService.EXTRA_IS_AGGRESSIVE, false)
+                    if (isAggressive) {
+                        tvDrivingStatus.text = "Aggressive"
+                        tvDrivingStatus.setTextColor(ContextCompat.getColor(context, R.color.danger_red))
+                        
+                        val currentTime = System.currentTimeMillis()
+                        if (currentTime - lastAlertTime > 5000) {
+                            try {
+                                val mediaPlayer = android.media.MediaPlayer.create(context, R.raw.alert_beep)
+                                mediaPlayer?.start()
+                                mediaPlayer?.setOnCompletionListener { mp -> mp.release() }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                            lastAlertTime = currentTime
+                        }
+
+                        val explanation = intent.getStringExtra(OBDForegroundService.EXTRA_EXPLANATION_TEXT)
+                        if (explanation != null) {
+                            val snackbar = Snackbar.make(findViewById(android.R.id.content), "⚠️ $explanation", Snackbar.LENGTH_LONG)
+                            snackbar.setBackgroundTint(ContextCompat.getColor(context, R.color.danger_red))
+                            snackbar.setTextColor(ContextCompat.getColor(context, R.color.white))
+                            snackbar.show()
+                        } else {
+                            val reasons = intent.getStringArrayListExtra(OBDForegroundService.EXTRA_BEHAVIOR_REASONS)
+                            if (reasons != null && reasons.isNotEmpty()) {
+                                val message = "⚠️ ${reasons.joinToString("\n⚠️ ")}"
+                                val snackbar = Snackbar.make(findViewById(android.R.id.content), message, Snackbar.LENGTH_LONG)
+                                snackbar.setBackgroundTint(ContextCompat.getColor(context, R.color.danger_red))
+                                snackbar.setTextColor(ContextCompat.getColor(context, R.color.white))
+                                snackbar.show()
+                            }
+                        }
+                    } else {
+                        tvDrivingStatus.text = "Good"
+                        tvDrivingStatus.setTextColor(ContextCompat.getColor(context, R.color.success_green))
+                    }
+                }
+                OBDForegroundService.ACTION_VEHICLE_INFO_UPDATE -> {
+                    val vehicleName = intent.getStringExtra(OBDForegroundService.EXTRA_VEHICLE_NAME)
+                    if (!vehicleName.isNullOrEmpty()) {
+                        tvVehicleModel.text = "Vehicle: $vehicleName"
+                        tvVehicleModel.visibility = View.VISIBLE
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_dashboard)
+
+        tvRpm = findViewById(R.id.tvRpm)
+        tvSpeed = findViewById(R.id.tvSpeed)
+        tvLoad = findViewById(R.id.tvLoad)
+        tvTemp = findViewById(R.id.tvTemp)
+        tvStatus = findViewById(R.id.tvStatus)
+        viewStatusDot = findViewById(R.id.viewStatusDot)
+        tvDrivingStatus = findViewById(R.id.tvDrivingStatus)
+        tvVehicleModel = findViewById(R.id.tvVehicleModel)
+
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val filter = IntentFilter().apply {
+            addAction(OBDForegroundService.ACTION_OBD_DATA)
+            addAction(OBDForegroundService.ACTION_OBD_CONNECTED)
+            addAction(OBDForegroundService.ACTION_OBD_DISCONNECTED)
+            addAction(OBDForegroundService.ACTION_BEHAVIOR_ALERT)
+            addAction(OBDForegroundService.ACTION_VEHICLE_INFO_UPDATE)
+        }
+        ContextCompat.registerReceiver(this, dataReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    override fun onPause() {
+        super.onPause()
+        unregisterReceiver(dataReceiver)
+    }
+}

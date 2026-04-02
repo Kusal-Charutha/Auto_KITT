@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>AutoKITT Diagrams (Fixed)</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+
+        mermaid.initialize({
+            startOnLoad: false,
+            // Ensure styles are inline for canvas export
+            theme: 'default',
+            securityLevel: 'loose'
+        });
+
+        window.renderDiagrams = async function () {
+            try {
+                // Class Diagram
+                await renderOne('class-diagram', `
+classDiagram
+    class ScanActivity {
+        -BluetoothAdapter bluetoothAdapter
+        -AppDatabase database
+        +onCreate()
+        +startScan()
+        +startOBDService()
+        +checkPermissions()
+    }
+    class DashboardActivity {
+        -BroadcastReceiver dataReceiver
+        +onCreate()
+        +onResume()
+        +onPause()
+        +updateUI(rpm, speed, load, temp)
+    }
+    class OBDForegroundService {
+        -BluetoothSocket bluetoothSocket
+        -InputStream inputStream
+        -OutputStream outputStream
+        -AppDatabase database
+        -Boolean isRunning
+        +onStartCommand()
+        +connectAndPoll()
+        -pollPIDSafe()
+        -broadcastData()
+        -saveToDatabase()
+    }
+    class OBDParser {
+        <<Singleton>>
+        +parse(cmd, rawResponse) Double
+    }
+    class AppDatabase {
+        +sensorDataDao() SensorDataDao
+    }
+    class SensorDataDao {
+        <<Interface>>
+        +insert(data)
+        +getAll()
+    }
+    class SensorData {
+        <<Entity>>
+        +Long id
+        +Long sessionId
+        +Long timestamp
+        +Double engineRpm
+        +Double vehicleSpeed
+    }
+
+    ScanActivity ..> OBDForegroundService : Starts
+    ScanActivity ..> AppDatabase : Uses
+    DashboardActivity ..> OBDForegroundService : Listens (Broadcast)
+    OBDForegroundService ..> OBDParser : Uses
+    OBDForegroundService ..> AppDatabase : Uses
+    OBDForegroundService ..> SensorData : Creates
+    AppDatabase *-- SensorDataDao
+    SensorDataDao ..> SensorData : Persists
+`);
+
+                // Sequence Diagram
+                await renderOne('sequence-diagram', `
+sequenceDiagram
+    participant User
+    participant ScanActivity
+    participant OBDForegroundService
+    participant OBDAdapter as ELM327 Device
+    participant OBDParser
+    participant Database
+    participant DashboardActivity
+
+    User->>ScanActivity: Select Device & Connect
+    ScanActivity->>OBDForegroundService: startForegroundService(deviceAddress)
+    ScanActivity->>DashboardActivity: startActivity()
+    
+    activate OBDForegroundService
+    OBDForegroundService->>OBDAdapter: Connect Bluetooth Socket
+    
+    loop Data Polling (While Connected)
+        OBDForegroundService->>OBDAdapter: Send PID (010C)
+        OBDAdapter-->>OBDForegroundService: Raw Hex
+        OBDForegroundService->>OBDParser: parse
+        OBDParser-->>OBDForegroundService: RPM Value
+        
+        par Update UI & Save
+             OBDForegroundService->>DashboardActivity: Broadcast
+             OBDForegroundService->>Database: Insert
+        end
+    end
+    
+    User->>ScanActivity: Click Disconnect
+    ScanActivity->>OBDForegroundService: stopService()
+    deactivate OBDForegroundService
+`);
+
+                // Activity Diagram
+                await renderOne('activity-diagram', `
+stateDiagram-v2
+    [*] --> SplashActivity
+    SplashActivity --> ScanActivity : Permissions Granted?
+    
+    state ScanActivity {
+        [*] --> CheckPermissions
+        CheckPermissions --> EnableBluetooth : No
+        EnableBluetooth --> ScanDevices
+        CheckPermissions --> ScanDevices : Yes
+        ScanDevices --> SelectDevice
+    }
+
+    ScanActivity --> OBDForegroundService : Start Service
+    OBDForegroundService --> DashboardActivity : Auto-Navigate
+    
+    state DashboardActivity {
+        [*] --> DisplayData
+        DisplayData --> UserDisconnects : Click Stop
+    }
+
+    UserDisconnects --> ScanActivity
+    ScanActivity --> [*]
+`);
+
+            } catch (e) {
+                alert("Mermaid Initialization Failed: " + e.message);
+                console.error(e);
+            }
+        };
+
+        async function renderOne(id, code) {
+            const element = document.getElementById(id);
+            const graphDiv = element.querySelector('.graph');
+            try {
+                const { svg } = await mermaid.render('mermaid-' + id, code);
+                graphDiv.innerHTML = svg;
+                element.querySelector('button').disabled = false;
+            } catch (e) {
+                graphDiv.innerHTML = '<p style="color:red">Render Error: ' + e.message + '</p>';
+                console.error(e);
+            }
+        }
+
+        // Initialize on load
+        window.addEventListener('load', window.renderDiagrams);
+    </script>
+
+    <script>
+        function downloadSVG(containerId, fileName) {
+            try {
+                const container = document.getElementById(containerId);
+                const svgElement = container.querySelector('svg');
+
+                if (!svgElement) {
+                    alert('Diagram not found. Has it rendered?');
+                    return;
+                }
+
+                // serialize
+                const serializer = new XMLSerializer();
+                let source = serializer.serializeToString(svgElement);
+
+                // Add namespaces manually if missing (often needed for standalone usage)
+                if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+                    source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+                }
+                if (!source.match(/^<svg[^>]+xmlns:xlink/)) {
+                    source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+                }
+
+                // Add white background rect if missing
+                // This is a hack because canvas export tends to be transparent
+                // Better: fill canvas with white
+
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+
+                // Get accurate size
+                const bbox = svgElement.getBoundingClientRect();
+                const scale = 2; // High-Res
+                canvas.width = bbox.width * scale;
+                canvas.height = bbox.height * scale;
+
+                const img = new Image();
+
+                // Blob URL approach
+                const svgBlob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+                const url = URL.createObjectURL(svgBlob);
+
+                img.onload = function () {
+                    // Draw white background
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.scale(scale, scale);
+                    ctx.drawImage(img, 0, 0);
+
+                    try {
+                        const pngUrl = canvas.toDataURL('image/png');
+
+                        const link = document.createElement('a');
+                        link.download = fileName;
+                        link.href = pngUrl;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+
+                        URL.revokeObjectURL(url);
+                    } catch (err) {
+                        alert("Security Error saving PNG: " + err.message + "\n\nTry right-clicking the diagram and choosing 'Save Image As' if available.");
+                    }
+                };
+
+                img.onerror = function (e) {
+                    alert("Error loading SVG into Image. Check console.");
+                };
+
+                img.src = url;
+
+            } catch (e) {
+                alert("Download Error: " + e.message);
+                console.error(e);
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background: #eee;
+        }
+
+        .diagram-container {
+            background: white;
+            margin-bottom: 20px;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0056b3;
+        }
+
+        .graph {
+            overflow-x: auto;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>AutoKITT Diagrams (Fixed)</h1>
+    <p>If the images don't appear, please ensure you are connected to the internet (CDM required).</p>
+
+    <!-- Class Diagram -->
+    <div id="class-diagram" class="diagram-container">
+        <h2>Class Diagram</h2>
+        <div class="graph">Loading...</div>
+        <button onclick="downloadSVG('class-diagram', 'class_diagram.png')" disabled>Download PNG</button>
+    </div>
+
+    <!-- Sequence Diagram -->
+    <div id="sequence-diagram" class="diagram-container">
+        <h2>Sequence Diagram</h2>
+        <div class="graph">Loading...</div>
+        <button onclick="downloadSVG('sequence-diagram', 'sequence_diagram.png')" disabled>Download PNG</button>
+    </div>
+
+    <!-- Activity Diagram -->
+    <div id="activity-diagram" class="diagram-container">
+        <h2>Activity Diagram</h2>
+        <div class="graph">Loading...</div>
+        <button onclick="downloadSVG('activity-diagram', 'activity_diagram.png')" disabled>Download PNG</button>
+    </div>
+
+</body>
+
+</html>

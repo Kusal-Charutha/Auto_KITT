@@ -1,0 +1,15 @@
+[
+  "engine_load",
+  "engine_coolant_temp",
+  "intake_manifold_pressure",
+  "engine_rpm",
+  "vehicle_speed",
+  "ignition_timing_advance",
+  "throttle_position",
+  "relative_throttle_position",
+  "accelerator_pedal_d",
+  "accelerator_pedal_e",
+  "throttle_actuator_control",
+  "steering_angle",
+  "steering_angular_velocity"
+]
