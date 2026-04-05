@@ -52,6 +52,7 @@ object OBDParser {
             "013D" -> parseCatTemp(cleaned) // Cat B1S2
             "0142" -> parseVoltage(cleaned) // Voltage
             "012E" -> parsePercent(cleaned) // Evap Purge
+            "0130" -> parseCount(cleaned)   // Warmups
             else -> -1.0
         }
     }
@@ -274,6 +275,18 @@ object OBDParser {
     }
 
     /**
+     * Count (01 30)
+     * Formula: A
+     */
+    private fun parseCount(hex: String): Double {
+        if (hex.length < 6) return 0.0
+        try {
+            val a = hex.substring(4, 6).toInt(16)
+            return a.toDouble()
+        } catch (e: NumberFormatException) { return 0.0 }
+    }
+
+    /**
      * Parse Vehicle Identification Number (09 02)
      * Robust algorithm: extracts all 2-char hex sequences, converts to ASCII,
      * and maps exactly the first 17-character alphanumeric sequence.
@@ -290,5 +303,50 @@ object OBDParser {
         val regex = Regex("[A-HJ-NPR-Z0-9]{17}", RegexOption.IGNORE_CASE)
         val match = regex.find(asciiString)
         return match?.value?.uppercase()
+    }
+
+    /**
+     * Parses Mode 03 response (DTCs).
+     * Decodes the standard SAE J2012 format bitmask into a String list (e.g. ["P0300"]).
+     */
+    fun parseDTCs(rawResponse: String): List<String> {
+        val dtcList = mutableListOf<String>()
+        val lines = rawResponse.split("\r", "\n").map { it.replace("\\s".toRegex(), "").replace(">", "").trim() }
+        
+        var hexPayload = ""
+        var started = false
+        for (line in lines) {
+            if (line.contains("NODATA") || line.contains("ERROR")) return emptyList()
+            var cleanLine = line.replace("^[0-9A-F]:".toRegex(), "")
+            if (cleanLine.startsWith("43")) {
+                cleanLine = cleanLine.substring(2)
+                started = true
+            }
+            if (started) {
+                hexPayload += cleanLine
+            }
+        }
+
+        val validHex = hexPayload.filter { it.isDigit() || it in 'A'..'F' || it in 'a'..'f' }
+        for (i in 0 until validHex.length - 3 step 4) {
+            val A_hex = validHex.substring(i, i + 2)
+            val B_hex = validHex.substring(i + 2, i + 4)
+            if (A_hex == "00" && B_hex == "00") continue
+
+            val aOrNull = A_hex.toIntOrNull(16)
+            val bOrNull = B_hex.toIntOrNull(16)
+            if (aOrNull == null || bOrNull == null) continue
+
+            val prefixLookup = arrayOf("P", "C", "B", "U")
+            val prefix = prefixLookup[(aOrNull shr 6) and 0b11]
+
+            val digit1 = ((aOrNull shr 4) and 0b11).toString()
+            val digit2 = (aOrNull and 0b1111).toString(16).uppercase()
+            val digit3 = ((bOrNull shr 4) and 0b1111).toString(16).uppercase()
+            val digit4 = (bOrNull and 0b1111).toString(16).uppercase()
+
+            dtcList.add(prefix + digit1 + digit2 + digit3 + digit4)
+        }
+        return dtcList.distinct()
     }
 }

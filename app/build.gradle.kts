@@ -29,7 +29,6 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
-    
     aaptOptions {
         noCompress("tflite")
     }
@@ -63,5 +62,8 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     
     // TFLite
-    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite:2.14.0") {
+        exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
+    }
+    implementation("org.tensorflow:tensorflow-lite-api:2.14.0")
 }

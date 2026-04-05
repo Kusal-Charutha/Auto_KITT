@@ -1,45 +1,52 @@
-# IDE
-.idea/
-*.iml
-.vscode/
-
-# Build
-build/
+# --- Gradle ---
 .gradle/
+build/
 app/build/
-app/.gradle/
+**/build/
 
-# Local configuration
+# --- IDEs ---
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+*.swp
+*.swo
+
+# --- Android ---
 local.properties
-gradle.properties
-gradle.xml
+app/release/
+captures/
+.externalNativeBuild
+.cxx/
+cmake-build-debug/
 
-# Logs and diagnostics
-*.log
-build_log*.txt
-signing_report.txt
-err.log
-
-# Python
+# --- Python (from root) ---
 venv/
 __pycache__/
-.pytest_cache/
+*.pyc
+*.pyo
+*.pyd
 
-# Android generated files
-*.apk
-*.aar
-*.ap_
-*.dex
-*.class
+# --- Logs & Test Artifacts ---
+*.log
+build_log*.txt
+build_output*.txt
+final_*.txt
+last_*.txt
+signing_report.txt
+dependencies.txt
+err.log
 
-# Android Keystore (SENSITIVE)
-*.jks
-*.keystore
+# --- Database & Backups ---
+db.zip
+*.db-journal
 
-# Captured Screenshots/Videos
-screenshots/
-captures/
-
-# OS Specific
+# --- OS Specific ---
 .DS_Store
 Thumbs.db
+
+# --- Keystore & Secrets ---
+*.jks
+*.keystore
+# google-services.json # Uncomment if you want to keep Firebase config secret

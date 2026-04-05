@@ -141,12 +141,13 @@ class MyDrivingActivity : AppCompatActivity() {
                     }
                 }
                 
-                // Analytics Math via Database
-                val drivingSeconds = if (isLastTrip && lastSessionId != null) {
-                    db.sensorDataDao().countDrivingTimeForSession(lastSessionId!!)
+                // Use Total Connected Time for "Total Time" rather than active engine ticks
+                val connectedTimeMs = if (isLastTrip && lastSessionId != null) {
+                    db.sensorDataDao().getTotalConnectedTimeForSession(lastSessionId!!) ?: 0L
                 } else {
-                    db.sensorDataDao().countDrivingTime(startTime, endTime)
+                    db.sensorDataDao().getTotalConnectedTime(startTime, endTime) ?: 0L
                 }
+                val totalDrivingTimeSecs = (connectedTimeMs / 1000).toInt()
                 
                 val idleSeconds = if (isLastTrip && lastSessionId != null) {
                     db.sensorDataDao().countIdleTimeForSession(lastSessionId!!)
@@ -167,28 +168,35 @@ class MyDrivingActivity : AppCompatActivity() {
                 }
                 
                 // Derived Math: Distance = (Time in Hours) * AvgSpeed
-                val drivingHours = drivingSeconds / 3600.0
+                // Using total connected time or actual moving time? Let's keep moving time for distance.
+                val movingSeconds = if (isLastTrip && lastSessionId != null) {
+                    db.sensorDataDao().countDrivingTimeForSession(lastSessionId!!)
+                } else {
+                    db.sensorDataDao().countDrivingTime(startTime, endTime)
+                }
+                val drivingHours = movingSeconds / 3600.0
                 val totalDistanceKm = drivingHours * avgSpeed
                 
-                // Original Health score Logic
-                val totalTicks = if (isLastTrip && lastSessionId != null) {
-                    db.sensorDataDao().countActiveDrivingTicksForSession(lastSessionId!!) 
+                // New Health score Logic: 
+                // totalDetections = "total aggressive and good detection" (every time ML ran)
+                val totalDetections = if (isLastTrip && lastSessionId != null) {
+                    db.sensorDataDao().countTotalDetectionsForSession(lastSessionId!!)
                 } else {
-                    db.sensorDataDao().countActiveDrivingTicks(startTime, endTime)
+                    db.sensorDataDao().countTotalDetections(startTime, endTime)
                 }
                 
+                // aggressiveAlerts = "total aggressive detections"
                 val aggressiveAlerts = db.alertLogDao().countBehaviorAlerts(startTime, endTime)
-                val totalEvaluations = totalTicks / 5 // Because ML runs every 5 loops
                 
                 withContext(Dispatchers.Main) {
                     // Inject real mathematics to our view
                     tvTotalDistance.text = String.format(Locale.getDefault(), "%.1f km", totalDistanceKm)
-                    tvTotalTime.text = formatSeconds(drivingSeconds)
+                    tvTotalTime.text = formatSeconds(totalDrivingTimeSecs) // Updated
                     tvIdleTime.text = formatSeconds(idleSeconds)
                     tvMaxSpeed.text = String.format(Locale.getDefault(), "%.0f km/h", maxSpeed)
                     tvAvgSpeed.text = String.format(Locale.getDefault(), "%.1f km/h", avgSpeed)
 
-                    if (totalEvaluations <= 0) {
+                    if (totalDetections <= 0) {
                         tvScaleTitle.text = "Driving Health Score: Insufficient Data"
                         tvHealthRate.text = "N/A"
                         // Center pointer
@@ -196,17 +204,17 @@ class MyDrivingActivity : AppCompatActivity() {
                             horizontalBias = 0.5f
                         }
                     } else {
-                        // Max ratio capped at 1.0 (100%)
-                        val aggressiveRatio = (aggressiveAlerts.toFloat() / totalEvaluations.toFloat()).coerceAtMost(1.0f)
-                        val goodRatio = 1.0f - aggressiveRatio
-                        val goodPercentage = (goodRatio * 100).toInt()
+                        // Healthy Driving Rate = (Total - Aggressive) / Total
+                        val goodDetections = (totalDetections - aggressiveAlerts).coerceAtLeast(0)
+                        val healthyRatio = goodDetections.toFloat() / totalDetections.toFloat()
+                        val healthyPercentage = (healthyRatio * 100).toInt()
                         
                         tvScaleTitle.text = "Driving Health Score"
-                        tvHealthRate.text = "$goodPercentage%"
+                        tvHealthRate.text = "$healthyPercentage%"
                         
                         // Set pointer location on scale
                         vScalePointer.layoutParams = (vScalePointer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams).apply {
-                            horizontalBias = goodRatio
+                            horizontalBias = healthyRatio
                         }
                     }
                 }

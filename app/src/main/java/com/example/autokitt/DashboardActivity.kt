@@ -14,8 +14,7 @@ import androidx.core.content.ContextCompat
 import com.google.android.material.snackbar.Snackbar
 import android.content.res.ColorStateList
 import android.view.View
-import android.media.RingtoneManager
-import android.net.Uri
+import android.media.MediaPlayer
 
 class DashboardActivity : ComponentActivity() {
 
@@ -59,14 +58,16 @@ class DashboardActivity : ComponentActivity() {
                 }
                 OBDForegroundService.ACTION_BEHAVIOR_ALERT -> {
                     val isAggressive = intent.getBooleanExtra(OBDForegroundService.EXTRA_IS_AGGRESSIVE, false)
+                    val probability = intent.getFloatExtra(OBDForegroundService.EXTRA_BEHAVIOR_PROBABILITY, 0.0f)
+
                     if (isAggressive) {
-                        tvDrivingStatus.text = "Aggressive"
+                        tvDrivingStatus.text = String.format("Aggressive (%.2f)", probability)
                         tvDrivingStatus.setTextColor(ContextCompat.getColor(context, R.color.danger_red))
                         
                         val currentTime = System.currentTimeMillis()
                         if (currentTime - lastAlertTime > 5000) {
                             try {
-                                val mediaPlayer = android.media.MediaPlayer.create(context, R.raw.alert_beep)
+                                val mediaPlayer = MediaPlayer.create(context, R.raw.alert_beep)
                                 mediaPlayer?.start()
                                 mediaPlayer?.setOnCompletionListener { mp -> mp.release() }
                             } catch (e: Exception) {
@@ -77,25 +78,16 @@ class DashboardActivity : ComponentActivity() {
 
                         val explanation = intent.getStringExtra(OBDForegroundService.EXTRA_EXPLANATION_TEXT)
                         if (explanation != null) {
-                            val snackbar = Snackbar.make(findViewById(android.R.id.content), "⚠️ $explanation", Snackbar.LENGTH_LONG)
-                            snackbar.setBackgroundTint(ContextCompat.getColor(context, R.color.danger_red))
-                            snackbar.setTextColor(ContextCompat.getColor(context, R.color.white))
-                            snackbar.show()
-                        } else {
-                            val reasons = intent.getStringArrayListExtra(OBDForegroundService.EXTRA_BEHAVIOR_REASONS)
-                            if (reasons != null && reasons.isNotEmpty()) {
-                                val message = "⚠️ ${reasons.joinToString("\n⚠️ ")}"
-                                val snackbar = Snackbar.make(findViewById(android.R.id.content), message, Snackbar.LENGTH_LONG)
-                                snackbar.setBackgroundTint(ContextCompat.getColor(context, R.color.danger_red))
-                                snackbar.setTextColor(ContextCompat.getColor(context, R.color.white))
-                                snackbar.show()
-                            }
+                            Snackbar.make(findViewById(android.R.id.content), "⚠️ $explanation", Snackbar.LENGTH_LONG)
+                                .setBackgroundTint(ContextCompat.getColor(context, R.color.danger_red))
+                                .show()
                         }
                     } else {
-                        tvDrivingStatus.text = "Good"
+                        tvDrivingStatus.text = String.format("Good (%.2f)", probability)
                         tvDrivingStatus.setTextColor(ContextCompat.getColor(context, R.color.success_green))
                     }
                 }
+
                 OBDForegroundService.ACTION_VEHICLE_INFO_UPDATE -> {
                     val vehicleName = intent.getStringExtra(OBDForegroundService.EXTRA_VEHICLE_NAME)
                     if (!vehicleName.isNullOrEmpty()) {
@@ -119,7 +111,6 @@ class DashboardActivity : ComponentActivity() {
         viewStatusDot = findViewById(R.id.viewStatusDot)
         tvDrivingStatus = findViewById(R.id.tvDrivingStatus)
         tvVehicleModel = findViewById(R.id.tvVehicleModel)
-
     }
 
     override fun onResume() {
@@ -129,12 +120,17 @@ class DashboardActivity : ComponentActivity() {
             addAction(OBDForegroundService.ACTION_OBD_CONNECTED)
             addAction(OBDForegroundService.ACTION_OBD_DISCONNECTED)
             addAction(OBDForegroundService.ACTION_BEHAVIOR_ALERT)
+
             addAction(OBDForegroundService.ACTION_VEHICLE_INFO_UPDATE)
         }
-        ContextCompat.registerReceiver(this, dataReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(dataReceiver, filter, 2) // 2 = RECEIVER_NOT_EXPORTED
+        } else {
+            registerReceiver(dataReceiver, filter)
+        }
+
     }
 
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onPause() {
         super.onPause()
         unregisterReceiver(dataReceiver)

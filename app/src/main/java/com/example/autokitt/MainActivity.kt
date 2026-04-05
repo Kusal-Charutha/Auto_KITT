@@ -31,6 +31,7 @@ import java.util.Calendar
 import java.util.Date
 import com.example.autokitt.database.AppDatabase
 import com.example.autokitt.utils.CsvExporter
+import com.example.autokitt.utils.DebugLogger
 import com.bumptech.glide.Glide
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -85,9 +86,26 @@ class MainActivity : ComponentActivity() {
         setContentView(R.layout.activity_main)
         
         database = AppDatabase.getDatabase(this)
-
-
-
+        // --- AI Health Check on Launch ---
+        DebugLogger.log(this, "APP_LAUNCH: Checking AI Assets...")
+        val assetList = listOf(
+            "models/driver_behavior_alert_model/driver_behavior_alert_model.tflite",
+            "models/driver_behavior_alert_model/scaler.json",
+            "models/driver_behavior_alert_model/feature_columns.json",
+            "models/vehicle_fault_prediction_model/vehicle_fault_model.tflite",
+            "models/vehicle_fault_prediction_model/scaler.json",
+            "models/vehicle_fault_prediction_model/feature_order.json"
+        )
+        
+        assetList.forEach { path ->
+            try {
+                assets.open(path).use { 
+                    DebugLogger.log(this, "ASSET_CHECK: FOUND -> $path")
+                }
+            } catch (e: Exception) {
+                DebugLogger.log(this, "ASSET_CHECK: MISSING !! -> $path")
+            }
+        }
         val btnConnectPaired = findViewById<Button>(R.id.btnConnectPaired) // Still a Button
         val btnSettings = findViewById<View>(R.id.btnSettings) // Now a LinearLayout
         val btnDashboard = findViewById<View>(R.id.btnDashboard) // Now a FrameLayout
@@ -216,9 +234,13 @@ class MainActivity : ComponentActivity() {
             popup.show()
         }
 
-        // Register for broadcasts
         val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
-        registerReceiver(receiver, filter)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(receiver, filter, 2) // 2 = RECEIVER_NOT_EXPORTED
+        } else {
+            registerReceiver(receiver, filter)
+        }
+
     }
 
     private fun checkPermissions(): Boolean {

@@ -34,7 +34,6 @@ class SyncManager(private val context: Context) {
             .build()
         connectivityManager.registerNetworkCallback(request, networkCallback)
 
-        // Also try an immediate sync in case we're already online
         if (isOnline()) {
             triggerSync()
         }
@@ -52,6 +51,19 @@ class SyncManager(private val context: Context) {
         val network = connectivityManager.activeNetwork ?: return false
         val caps = connectivityManager.getNetworkCapabilities(network) ?: return false
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    fun enqueue(entry: SyncQueueEntry) {
+        scope.launch {
+            try {
+                database.syncQueueDao().insert(entry)
+                if (isOnline()) {
+                    triggerSync()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to enqueue sync entry", e)
+            }
+        }
     }
 
     fun triggerSync() {
@@ -89,17 +101,12 @@ class SyncManager(private val context: Context) {
                     Log.d(TAG, "Synced and deleted ${ids.size} records")
                 } else {
                     Log.e(TAG, "Batch upload failed: HTTP ${response.code()}")
-                    break // Stop retrying on server error, will retry on next network event
+                    break // Stop retrying on server error
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Sync failed (will retry when online)", e)
                 break
             }
-        }
-
-        val remaining = dao.getPendingCount()
-        if (remaining > 0) {
-            Log.d(TAG, "$remaining records still pending in sync queue")
         }
     }
 
@@ -116,26 +123,25 @@ class SyncManager(private val context: Context) {
             throttle = throttle,
             engineLoad = engineLoad,
             coolantTemp = coolantTemp,
-            intakeTemp = intakeTemp,
-            maf = maf,
-            fuelRate = fuelRate,
             runTime = runTime,
-            ltft1 = ltft1,
-            stft1 = stft1,
             map = map,
+            timing = timing,
+            intakeTemp = intakeTemp,
             fuelLevel = fuelLevel,
+            baro = baro,
+            voltage = voltage,
+            equivRatio = equivRatio,
+            relThrottle = relThrottle,
             absThrottleB = absThrottleB,
             pedalD = pedalD,
             pedalE = pedalE,
             cmdThrottle = cmdThrottle,
-            equivRatio = equivRatio,
-            baro = baro,
-            relThrottle = relThrottle,
-            timing = timing,
+            ltft1 = ltft1,
+            stft1 = stft1,
             catB1S1 = catB1S1,
             catB1S2 = catB1S2,
-            voltage = voltage,
-            evapPurge = evapPurge
+            evapPurge = evapPurge,
+            warmups = warmups
         )
     }
 }

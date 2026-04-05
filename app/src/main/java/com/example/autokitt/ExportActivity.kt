@@ -11,9 +11,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.autokitt.database.AppDatabase
 import com.example.autokitt.utils.CsvExporter
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.example.autokitt.utils.DebugLogger
+import androidx.core.content.FileProvider
+import android.content.Intent
+import kotlinx.coroutines.*
+import java.io.File
 import java.util.Calendar
 
 class ExportActivity : AppCompatActivity() {
@@ -25,6 +27,7 @@ class ExportActivity : AppCompatActivity() {
     
     private lateinit var rgExportOptions: RadioGroup
     private lateinit var btnExportAction: Button
+    private lateinit var btnShareDebug: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,7 +37,8 @@ class ExportActivity : AppCompatActivity() {
         
         rgExportOptions = findViewById(R.id.rgExportOptions)
         btnExportAction = findViewById(R.id.btnExportAction)
-        
+        btnShareDebug = findViewById(R.id.btnShareDebug)
+
         btnExportAction.setOnClickListener {
             val selectedId = rgExportOptions.checkedRadioButtonId
             if (selectedId == -1) {
@@ -49,6 +53,31 @@ class ExportActivity : AppCompatActivity() {
             
             val fileName = "AutoKITT_Export_${selectedOptionName.replace(" ", "_")}_${System.currentTimeMillis()}.csv"
             createDocumentLauncher.launch(fileName)
+        }
+
+        btnShareDebug.setOnClickListener {
+            shareDebugLog()
+        }
+    }
+
+    private fun shareDebugLog() {
+        val logFile = DebugLogger.getLogFile(this)
+        if (!logFile.exists() || logFile.length() == 0L) {
+            Toast.makeText(this, "No debug logs recorded yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            val contentUri = FileProvider.getUriForFile(this, "com.example.autokitt.fileprovider", logFile)
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                putExtra(Intent.EXTRA_SUBJECT, "AutoKITT Debug Trace")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "Share Debug Trace"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Failed to share logs: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
     

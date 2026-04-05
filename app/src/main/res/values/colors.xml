@@ -28,4 +28,5 @@
     <color name="blue_gradient_end">#8AB4F8</color>
     <color name="white_opacity_80">#CCFFFFFF</color>
     <color name="card_bg_light_blue">#D0E0FC</color>
+    <color name="info_blue">#2196F3</color>
 </resources>

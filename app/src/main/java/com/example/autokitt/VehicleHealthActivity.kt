@@ -25,7 +25,6 @@ class VehicleHealthActivity : AppCompatActivity() {
     private lateinit var tvRecordedFaults: TextView
     private lateinit var llFaultHistory: LinearLayout
     private lateinit var db: AppDatabase
-
     private val faultUpdateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == OBDForegroundService.ACTION_VEHICLE_FAULT_ALERT) {
@@ -33,7 +32,6 @@ class VehicleHealthActivity : AppCompatActivity() {
             }
         }
     }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_vehicle_health)
@@ -100,33 +98,47 @@ class VehicleHealthActivity : AppCompatActivity() {
             }
 
             val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
-            
-            val errorCounts = mutableMapOf<String, Int>()
-            val alertColors = mutableMapOf<Long, Int>()
-
-            for (alert in alerts.reversed()) {
-                val errorType = alert.explanationText
-                val count = errorCounts.getOrDefault(errorType, 0) + 1
-                errorCounts[errorType] = count
-                
-                val colorRes = when (count) {
-                    1 -> R.drawable.bg_card_outline_green
-                    2 -> R.drawable.bg_card_outline_yellow
-                    else -> R.drawable.bg_card_outline_red
-                }
-                alertColors[alert.timestamp] = colorRes
-            }
 
             alerts.forEach { alert ->
                 val card = layoutInflater.inflate(R.layout.item_alert_log, llFaultHistory, false)
                 val tvTime: TextView = card.findViewById(R.id.tvAlertTime)
                 val tvText: TextView = card.findViewById(R.id.tvAlertExplanation)
-
-                card.setBackgroundResource(alertColors[alert.timestamp] ?: R.drawable.bg_card_outline_green)
+                val tvAdvice: TextView = card.findViewById(R.id.tvAlertAdvice)
+                val tvSeverity: TextView = card.findViewById(R.id.tvAlertSeverity)
+                val viewSeverityDot: View = card.findViewById(R.id.viewSeverityDot)
 
                 tvTime.text = sdf.format(Date(alert.timestamp))
                 tvText.text = alert.explanationText
-                
+
+                // Show severity indicator
+                val severityColor = when (alert.severity) {
+                    "CRITICAL" -> R.color.danger_red
+                    "WARNING" -> R.color.warning_yellow
+                    "INFO" -> R.color.info_blue
+                    else -> R.color.warning_yellow
+                }
+                viewSeverityDot.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(this@VehicleHealthActivity, severityColor)
+                )
+                tvSeverity.text = alert.severity
+                tvSeverity.setTextColor(ContextCompat.getColor(this@VehicleHealthActivity, severityColor))
+                tvSeverity.visibility = View.VISIBLE
+
+                // Show advice if available
+                if (alert.advice.isNotBlank()) {
+                    tvAdvice.text = "\uD83D\uDCA1 ${alert.advice}"
+                    tvAdvice.visibility = View.VISIBLE
+                }
+
+                // Severity-based card background
+                val bgRes = when (alert.severity) {
+                    "CRITICAL" -> R.drawable.bg_card_outline_red
+                    "WARNING" -> R.drawable.bg_card_outline_yellow
+                    "INFO" -> R.drawable.bg_card_outline_green
+                    else -> R.drawable.bg_card_outline_yellow
+                }
+                card.setBackgroundResource(bgRes)
+
                 llFaultHistory.addView(card)
             }
         }

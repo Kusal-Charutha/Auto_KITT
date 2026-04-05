@@ -17,6 +17,7 @@ import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -33,9 +34,12 @@ import java.net.URL
 import com.example.autokitt.database.AppDatabase
 import com.example.autokitt.database.SensorData
 import com.example.autokitt.database.SyncQueueEntry
+import com.example.autokitt.utils.DebugLogger
 import com.example.autokitt.network.SyncManager
 import com.example.autokitt.ml.DriverBehaviorAnalyzer
 import com.example.autokitt.ml.VehicleFaultAnalyzer
+import com.example.autokitt.utils.DtcDictionary
+import java.util.ArrayList
 
 class OBDForegroundService : Service() {
 
@@ -53,19 +57,47 @@ class OBDForegroundService : Service() {
     private var behaviorAnalyzer: DriverBehaviorAnalyzer? = null
     private var faultAnalyzer: VehicleFaultAnalyzer? = null
 
-    // --- Idle Heuristic Trackers ---
+    // Idle trackers
     private var idleStartTime: Long = 0L
     private var revvingWhileStationaryStartTime: Long = 0L
     private var alertedRevvingImmediate = false
-    private var alertedRevving1Min = false
     private var alertedIdle3Min = false
-    private var alertedIdle5Min = false
 
     private var lastFaultAlertTime: Long = 0
-    private val FAULT_ALERT_COOLDOWN_MS: Long = 60000 // 1 minute cooldown
-
-    // Standard SPP UUID
+    private val FAULT_ALERT_COOLDOWN_MS: Long = 60000 
+    
+    private var lastDtcPollTime: Long = 0
+    private val DTC_POLL_INTERVAL_MS: Long = 60000 
+    private val reportedDtcs = mutableSetOf<String>()
+    
     private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+
+    // --- Expanded Sensor State ---
+    private val sensorDataMap = mutableMapOf<String, Double>()
+    
+    // Diagnostic sensors queue for round-robin polling
+    private val diagPids = listOf(
+        "runTime" to "011F",
+        "map" to "010B",
+        "timingAdvance" to "010E",
+        "intakeTemp" to "010F",
+        "fuelLevel" to "012F",
+        "baro" to "0133",
+        "voltage" to "0142",
+        "equivRatio" to "0144",
+        "relThrottle" to "0145",
+        "absThrottleB" to "0147",
+        "pedalD" to "0149",
+        "pedalE" to "014A",
+        "throttleCmd" to "014C",
+        "ltft1" to "0107",
+        "stft1" to "0106",
+        "catTempB1S1" to "013C",
+        "catTempB1S2" to "013D",
+        "evapPurge" to "012E",
+        "warmups" to "0130"
+    )
+    private var diagIndex = 0
 
     companion object {
         const val EXTRA_DEVICE_ADDRESS = "device_address"
@@ -82,12 +114,16 @@ class OBDForegroundService : Service() {
         const val EXTRA_SPEED = "extra_speed"
         const val EXTRA_LOAD = "extra_load"
         const val EXTRA_TEMP = "extra_temp"
+        const val EXTRA_THROTTLE = "extra_throttle"
+        
+        // Expanded Extras
         const val EXTRA_INTAKE = "extra_intake"
         const val EXTRA_VOLTAGE = "extra_voltage"
         const val EXTRA_STFT = "extra_stft"
 
         const val ACTION_BEHAVIOR_ALERT = "com.example.autokitt.BEHAVIOR_ALERT"
         const val EXTRA_IS_AGGRESSIVE = "extra_is_aggressive"
+        const val EXTRA_BEHAVIOR_PROBABILITY = "extra_behavior_probability"
         const val EXTRA_BEHAVIOR_REASONS = "extra_behavior_reasons"
 
         const val ACTION_VEHICLE_FAULT_ALERT = "com.example.autokitt.VEHICLE_FAULT_ALERT"
@@ -100,440 +136,275 @@ class OBDForegroundService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-
+ 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
         database = AppDatabase.getDatabase(this)
+        
+        // Initialize Analyzers
         behaviorAnalyzer = DriverBehaviorAnalyzer(this)
         faultAnalyzer = VehicleFaultAnalyzer(this)
-
-        // Read logged-in user info for TimescaleDB association
-        val prefs = getSharedPreferences("AutoKITT_Prefs", Context.MODE_PRIVATE)
-        userEmail = prefs.getString("user_email", "guest") ?: "guest"
-        userName = prefs.getString("user_name", "Guest") ?: "Guest"
-
-        // Start the offline-first sync manager
-        syncManager = SyncManager(this)
-        syncManager?.start()
     }
 
-    @SuppressLint("MissingPermission")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val deviceAddress = intent?.getStringExtra(EXTRA_DEVICE_ADDRESS)
-        if (deviceAddress == null) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        val address = intent?.getStringExtra(EXTRA_DEVICE_ADDRESS)
+        userEmail = intent?.getStringExtra("user_email") ?: "guest"
+        userName = intent?.getStringExtra("user_name") ?: "Guest"
 
-        startForeground(NOTIFICATION_ID, createNotification("Connecting to OBD..."))
-        
-            if (!isRunning) {
+        if (!isRunning && address != null) {
             isRunning = true
-            sessionId = System.currentTimeMillis() // Generate new session ID
+            createNotificationChannel()
+            startForeground(NOTIFICATION_ID, createNotification("Connecting to OBD-II..."))
+            
+            // Log started state for verification
+            DebugLogger.log(this, "SERVICE_START: Connecting to OBD loop...")
+            
+            syncManager = SyncManager(this)
+            syncManager?.start()
+            
             serviceScope.launch {
-                connectAndPoll(deviceAddress)
+                sessionId = System.currentTimeMillis()
+                connectAndPoll(address)
             }
         }
-
         return START_STICKY
     }
 
-    @SuppressLint("MissingPermission")
-    private suspend fun CoroutineScope.connectAndPoll(address: String) {
+    private suspend fun connectAndPoll(address: String) {
         val adapter = BluetoothAdapter.getDefaultAdapter()
         val device = adapter.getRemoteDevice(address)
 
         while (isRunning) {
             try {
-                updateNotification("Connecting to ${device.name}...")
-                Log.d("AutoKITT", "BT_CONNECT: Attempting secure socket...")
-                bluetoothSocket = device.createRfcommSocketToServiceRecord(SPP_UUID)
+                updateNotification("Connecting to $address...")
+                bluetoothSocket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
                 
                 try {
                     bluetoothSocket?.connect()
-                    Log.d("AutoKITT", "BT_CONNECT: Secure connection successful")
                 } catch (e: IOException) {
-                    Log.w("AutoKITT", "BT_CONNECT: Secure connection failed, trying insecure fallback...")
                     bluetoothSocket?.close()
                     bluetoothSocket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
                     bluetoothSocket?.connect()
-                    Log.d("AutoKITT", "BT_CONNECT: Insecure connection successful")
                 }
                 
                 inputStream = bluetoothSocket?.inputStream
                 outputStream = bluetoothSocket?.outputStream
 
-                updateNotification("Initializing ELM327...")
-                Log.d("AutoKITT", "BT_INIT: Starting AT commands...")
-                sendCommand("ATZ") // Reset
+                updateNotification("Initializing Protocol...")
+                sendCommand("ATZ")
                 delay(1000)
-                sendCommand("ATE0") // Echo Off
-                sendCommand("ATL0") // Linefeeds Off
-                sendCommand("ATSP0") // Auto Protocol
-                Log.d("AutoKITT", "BT_INIT: Initialization complete")
+                sendCommand("ATE0")
+                sendCommand("ATL0")
+                sendCommand("ATSP0")
                 
-                // Fetch VIN with timeout to avoid blocking main loop
-                updateNotification("Fetching Vehicle Info...")
-                Log.d("AutoKITT", "BT_INIT: Fetching VIN...")
-                outputStream?.write(("0902\r").toByteArray())
-                outputStream?.flush()
-                
-                // Read with a reasonable timeout for VIN
-                val vinResponse = withContext(Dispatchers.IO) {
-                    var result: String? = null
-                    val vinStartTime = System.currentTimeMillis()
-                    while (System.currentTimeMillis() - vinStartTime < 2000) { // 2s max for VIN
-                        val raw = readResponse()
-                        if (raw.contains(">")) {
-                            result = raw
-                            break
-                        }
-                        delay(200)
-                    }
-                    result ?: ""
-                }
-                val vin = if (vinResponse.isNotEmpty()) OBDParser.parseVIN(vinResponse) else null
-                
-                if (vin != null) {
-                    // Start async call to decode VIN
-                    CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            val url = URL("https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/$vin?format=json")
-                            val connection = url.openConnection() as HttpURLConnection
-                            connection.requestMethod = "GET"
-                            val responseStr = connection.inputStream.bufferedReader().use { it.readText() }
-                            val json = JSONObject(responseStr)
-                            val results = json.getJSONArray("Results").getJSONObject(0)
-                            val make = results.optString("Make", "")
-                            val model = results.optString("Model", "")
-                            val year = results.optString("ModelYear", "")
-                            
-                            if (make.isNotEmpty()) {
-                                val vehicleName = "$year $make $model".trim()
-                                val intent = Intent(ACTION_VEHICLE_INFO_UPDATE).apply {
-                                    putExtra(EXTRA_VEHICLE_NAME, vehicleName)
-                                }
-                                sendBroadcast(intent)
-                                Log.d("AutoKITT", "Decoded VIN: $vehicleName")
-                            }
-                        } catch (e: Exception) {
-                            Log.e("AutoKITT", "Failed to decode VIN", e)
-                        }
-                    }
-                }
-
-                updateNotification("Polling Data...")
+                updateNotification("Polling Sensors...")
                 sendBroadcast(Intent(ACTION_OBD_CONNECTED))
                 
-                // Polling Loop
-                // Polling Optimization
                 var loopCount = 0
-                
-                // Initialize "Slow" variables with default or -1
-                var intake = -1.0
-                var maf = -1.0
-                var fuelRate = -1.0
-                var runtime = -1.0
-                var ltft1 = -1.0
-                var stft1 = -1.0
-                var map = -1.0
-                var fuelLevel = -1.0
-                var absThrottleB = -1.0
-                var pedalD = -1.0
-                var pedalE = -1.0
-                var cmdThrottle = -1.0
-                var equivRatio = -1.0
-                var baro = -1.0
-                var relThrottle = -1.0
-                var timing = -1.0
-                var catB1S1 = -1.0
-                var catB1S2 = -1.0
-                var voltage = -1.0
-                var evaporation = -1.0
-                
-                while (isActive && bluetoothSocket?.isConnected == true) {
-                    // --- FAST SENSORS (Every Loop) ---
-                    // Using pollPIDSafe to retry once on failure
-                    val rpm = pollPIDSafe("010C") 
-                    val speed = pollPIDSafe("010D")
-                    val load = pollPIDSafe("0104")
-                    val throttle = pollPIDSafe("0111")
-                    val coolant = pollPIDSafe("0105")
-                    
-                    // --- SLOW SENSORS (Round Robin) ---
-                    // Interleave slow sensors to avoid blocking fast data updates
-                    when (loopCount % 20) {
-                        0 -> intake = pollPID("010F").takeIf { it != -1.0 } ?: intake
-                        1 -> maf = pollPID("0110").takeIf { it != -1.0 } ?: maf
-                        2 -> fuelRate = pollPID("015E").takeIf { it != -1.0 } ?: fuelRate
-                        3 -> runtime = pollPID("011F").takeIf { it != -1.0 } ?: runtime
-                        4 -> ltft1 = pollPID("0107").takeIf { it != -1.0 } ?: ltft1
-                        5 -> stft1 = pollPID("0106").takeIf { it != -1.0 } ?: stft1
-                        6 -> map = pollPID("010B").takeIf { it != -1.0 } ?: map
-                        7 -> fuelLevel = pollPID("012F").takeIf { it != -1.0 } ?: fuelLevel
-                        8 -> absThrottleB = pollPID("0147").takeIf { it != -1.0 } ?: absThrottleB
-                        9 -> pedalD = pollPID("0149").takeIf { it != -1.0 } ?: pedalD
-                        10 -> pedalE = pollPID("014A").takeIf { it != -1.0 } ?: pedalE
-                        11 -> cmdThrottle = pollPID("014C").takeIf { it != -1.0 } ?: cmdThrottle
-                        12 -> equivRatio = pollPID("0144").takeIf { it != -1.0 } ?: equivRatio
-                        13 -> baro = pollPID("0133").takeIf { it != -1.0 } ?: baro
-                        14 -> relThrottle = pollPID("0145").takeIf { it != -1.0 } ?: relThrottle
-                        15 -> timing = pollPID("010E").takeIf { it != -1.0 } ?: timing
-                        16 -> catB1S1 = pollPID("013C").takeIf { it != -1.0 } ?: catB1S1
-                        17 -> catB1S2 = pollPID("013D").takeIf { it != -1.0 } ?: catB1S2
-                        18 -> voltage = pollPID("0142").takeIf { it != -1.0 } ?: voltage
-                        19 -> evaporation = pollPID("012E").takeIf { it != -1.0 } ?: evaporation
-                    }
+                while (serviceScope.isActive && bluetoothSocket?.isConnected == true) {
+                    try {
+                        // -- TIER 1: High Priority (Every loop) --
+                        val rpm = pollPIDSafe("010C") 
+                        val speed = pollPIDSafe("010D")
+                        val load = pollPIDSafe("0104")
+                        val throttle = pollPIDSafe("0111")
+                        val coolant = pollPIDSafe("0105")
 
-                    // Log only fast ones to reduce spam, or intermittent
-                    if (loopCount % 10 == 0) Log.d("AutoKITT", "RPM: $rpm, Speed: $speed, Load: $load")
+                        sensorDataMap["rpm"] = rpm
+                        sensorDataMap["speed"] = speed
+                        sensorDataMap["calcLoad"] = load
+                        sensorDataMap["absThrottle"] = throttle
+                        sensorDataMap["coolantTemp"] = coolant
 
-                    // Broadcast data to Dashboard UI
-                    if (rpm != -1.0 && speed != -1.0) {
-                        broadcastData(rpm, speed, load, coolant, intake, voltage, stft1)
-                    }
+                        // -- TIER 2: Diagnostic (1 per loop) --
+                        val (key, pid) = diagPids[diagIndex]
+                        sensorDataMap[key] = pollPIDSafe(pid)
+                        diagIndex = (diagIndex + 1) % diagPids.size
 
-                    // --- DRIVER BEHAVIOR ANALYSIS ---
-                    // Run inference every 5 loops to reduce overhead and allow slow features to update
-                    if (loopCount % 5 == 0 && rpm != -1.0) {
-                        val sensorMap = mapOf(
-                            "rpm" to rpm,
-                            "speed" to speed,
-                            "calcLoad" to load,
-                            "throttleCmd" to cmdThrottle,
-                            "coolantTemp" to coolant,
-                            "intakeTemp" to intake,
-                            "maf" to maf,
-                            "fuelRate" to fuelRate,
-                            "runtime" to runtime,
-                            "ltft1" to ltft1,
-                            "stft1" to stft1,
-                            "map" to map,
-                            "fuelLevel" to fuelLevel,
-                            "absThrottleB" to absThrottleB,
-                            "pedalD" to pedalD,
-                            "pedalE" to pedalE,
-                            "equivRatio" to equivRatio,
-                            "baro" to baro,
-                            "relThrottle" to relThrottle,
-                            "timingAdvance" to timing,
-                            "catTempB1S1" to catB1S1,
-                            "catTempB1S2" to catB1S2,
-                            "catTemp" to catB1S1, // Legacy key
-                            "controlModuleVoltage" to voltage,
-                            "evapPurge" to evaporation,
-                            "absThrottle" to throttle,
-                            "warmups" to -1.0,
-                            "clrDistance" to -1.0
-                        )
+                        if (loopCount % 10 == 0) Log.d("AutoKITT", "Fast Poll: RPM=$rpm, SPD=$speed | Slow Poll: $key=${sensorDataMap[key]}")
 
-                        if (speed > 1) {
-                            val result = behaviorAnalyzer?.analyze(sensorMap)
-                            if (result != null) {
-                                val intent = Intent(ACTION_BEHAVIOR_ALERT).apply {
-                                    putExtra(EXTRA_IS_AGGRESSIVE, result.isAggressive)
-                                    // Use native model reasoning
-                                    if (result.isAggressive) {
-                                        putExtra(EXTRA_EXPLANATION_TEXT, result.explanationText)
-                                        Log.d("DriverBehavior", "JSON: ${result.jsonPayload}")
-                                        
-                                        val log = com.example.autokitt.database.AlertLog(
-                                            timestamp = System.currentTimeMillis(),
-                                            alertType = "BEHAVIOR",
-                                            explanationText = result.explanationText,
-                                            jsonPayload = result.jsonPayload
-                                        )
-                                        serviceScope.launch(Dispatchers.IO) { database.alertLogDao().insert(log) }
-                                    }
-                                    putStringArrayListExtra(EXTRA_BEHAVIOR_REASONS, ArrayList(result.reasons))
-                                }
-                                sendBroadcast(intent)
-                            }
-                        } else {
-                            // Force reset to 'Good' when vehicle is idling or coasting to prevent "Aggressive" sticking
-                            val intent = Intent(ACTION_BEHAVIOR_ALERT).apply {
-                                putExtra(EXTRA_IS_AGGRESSIVE, false)
-                                putStringArrayListExtra(EXTRA_BEHAVIOR_REASONS, ArrayList())
-                            }
-                            sendBroadcast(intent)
+                        // 1. UI Broadcast (Legacy support for Dashboard)
+                        if (rpm != -1.0 && speed != -1.0) {
+                            broadcastData(rpm, speed, load, coolant, throttle)
                         }
-
-                        // --- IDLE & REVVING HEURISTICS ---
-                        val currentTime = System.currentTimeMillis()
-                        if (speed < 1 && rpm > 0) {
-                            // 1. Revving While Stationary (Heuristic)
-                            if (rpm > 1300) {
-                                if (revvingWhileStationaryStartTime == 0L) {
-                                    revvingWhileStationaryStartTime = currentTime
-                                }
-                                
-                                // Immediate Alert
-                                if (!alertedRevvingImmediate) {
-                                    sendSystemNotification("Unnecessary Acceleration Detected : ", "Do not accelerate while idling.")
-                                    alertedRevvingImmediate = true
-                                }
-                                
-                            } else {
-                                revvingWhileStationaryStartTime = 0L
-                                alertedRevvingImmediate = false
-                                alertedRevving1Min = false
-                            }
-
-                            // 2. Excessive Idling (Heuristic)
-                            if (rpm > 0 && rpm < 1200) { // Normal idle range
-                                if (idleStartTime == 0L) {
-                                    idleStartTime = currentTime
-                                }
-                                
-                                val idleDurationMs = currentTime - idleStartTime
-                                
-                                // 2 Minute Alert
-                                if (!alertedIdle3Min && idleDurationMs > 120000) {
-                                    sendSystemNotification("Idle Tip : ", "Vehicle has been idling for 2 minutes. Consider turning off the engine to save fuel.")
-                                    alertedIdle3Min = true
-                                }
-
-                                // 3.5 Minute Alert
-                                if (!alertedIdle3Min && idleDurationMs > 210000) {
-                                    sendSystemNotification("Idle Reminder : ", "Vehicle has been idling for more than 3 minutes. Consider turning off the engine to save fuel.")
-                                    alertedIdle3Min = true
-                                }
-                                
-                                // 5 Minute Alert
-                                if (!alertedIdle5Min && idleDurationMs > 300000) {
-                                    sendSystemNotification("Excessive Idle : ", "5-minute idle limit reached. Excessive fuel consumption detected.")
-                                    alertedIdle5Min = true
+                        
+                        // 1.5 Poll Physical DTCs (Every 60s)
+                        if (System.currentTimeMillis() - lastDtcPollTime > DTC_POLL_INTERVAL_MS) {
+                            lastDtcPollTime = System.currentTimeMillis()
+                            val dtcs = pollDTCs()
+                            for (code in dtcs) {
+                                if (!reportedDtcs.contains(code)) {
+                                    reportedDtcs.add(code)
+                                    val description = DtcDictionary.getDescription(code)
+                                    sendFaultNotification("Fault Detected", "$code: $description")
+                                    logAlert("FAULT", "Physical DTC Detected: $code", "{ \"code\": \"$code\" }", "CRITICAL", description)
+                                    
+                                    sendBroadcast(Intent(ACTION_VEHICLE_FAULT_ALERT).apply {
+                                        putExtra(EXTRA_FAULT_STATUS, "Faulty ($code)")
+                                        putExtra(EXTRA_FAULT_PROBABILITY, 1.0f)
+                                        putExtra(EXTRA_FAULT_REASON, code)
+                                        putExtra(EXTRA_EXPLANATION_TEXT, description)
+                                    })
                                 }
                             }
                         }
 
+                        // 3. Stationary Heuristics (Always evaluate regardless of speed check)
+                        processStationaryAlerts(speed, rpm)
 
-                        // --- VEHICLE FAULT DETECTION ---
-                        val faultResult = faultAnalyzer?.analyze(sensorMap)
-                        if (faultResult != null) {
-                            val faultIntent = Intent(ACTION_VEHICLE_FAULT_ALERT).apply {
-                                putExtra(EXTRA_FAULT_STATUS, faultResult.status)
-                                putExtra(EXTRA_FAULT_PROBABILITY, faultResult.probability)
-                                putExtra(EXTRA_FAULT_REASON, faultResult.possibleReason)
-                                
-                                // Use native model reasoning
-                                if (faultResult.status == "Faulty" || faultResult.status == "Requires Maintenance") {
+                        if (rpm > 0.0) { // Unblocked: Analyse whenever engine is ON
+                            val behaviorResult = behaviorAnalyzer?.analyze(sensorDataMap)
+                            val faultResult = faultAnalyzer?.analyze(sensorDataMap)
+                            
+                            if (behaviorResult != null) {
+                                val alertIntent = Intent(ACTION_BEHAVIOR_ALERT).apply {
+                                    putExtra(EXTRA_IS_AGGRESSIVE, behaviorResult.isAggressive)
+                                    putExtra(EXTRA_BEHAVIOR_PROBABILITY, behaviorResult.probability)
+                                    putStringArrayListExtra(EXTRA_BEHAVIOR_REASONS, ArrayList(behaviorResult.reasons))
+                                    putExtra(EXTRA_EXPLANATION_TEXT, behaviorResult.explanationText)
+                                }
+                                sendBroadcast(alertIntent)
+
+                                if (behaviorResult.isAggressive) {
+                                    sendSystemNotification("Aggressive Driving", behaviorResult.explanationText)
+                                    val severity = if (behaviorResult.probability > 0.8) "CRITICAL" else "WARNING"
+                                    val advice = behaviorResult.reasons.joinToString(". ")
+                                    logAlert("BEHAVIOR", behaviorResult.explanationText, behaviorResult.jsonPayload, severity, advice)
+                                }
+                            }
+
+                            if (faultResult != null) {
+                                sendBroadcast(Intent(ACTION_VEHICLE_FAULT_ALERT).apply {
+                                    putExtra(EXTRA_FAULT_STATUS, faultResult.status)
+                                    putExtra(EXTRA_FAULT_PROBABILITY, faultResult.probability)
+                                    putExtra(EXTRA_FAULT_REASON, faultResult.possibleReason)
                                     putExtra(EXTRA_EXPLANATION_TEXT, faultResult.explanationText)
-                                    Log.d("VehicleFault", "JSON: ${faultResult.jsonPayload}")
-
-                                    val currentTime = System.currentTimeMillis()
-                                    if (currentTime - lastFaultAlertTime > FAULT_ALERT_COOLDOWN_MS) {
-                                        sendFaultNotification(faultResult.possibleReason)
-                                        lastFaultAlertTime = currentTime
+                                })
+                                if (faultResult.status == "Faulty" || faultResult.status == "Requires Maintenance") {
+                                    if (System.currentTimeMillis() - lastFaultAlertTime > FAULT_ALERT_COOLDOWN_MS) {
+                                        sendFaultNotification("Fault Detected", faultResult.possibleReason)
+                                        lastFaultAlertTime = System.currentTimeMillis()
                                     }
-
-                                    val log = com.example.autokitt.database.AlertLog(
-                                        timestamp = currentTime,
-                                        alertType = "FAULT",
-                                        explanationText = faultResult.explanationText,
-                                        jsonPayload = faultResult.jsonPayload
-                                    )
-                                    launch { database.alertLogDao().insert(log) }
+                                    val severity = if (faultResult.status.contains("Faulty", ignoreCase = true)) "CRITICAL" else "WARNING"
+                                    logAlert("FAULT", faultResult.explanationText, faultResult.jsonPayload, severity, faultResult.possibleReason)
                                 }
                             }
-                            sendBroadcast(faultIntent)
                         }
-                    }
-                    
-                    // Save to Database
-                    // We save every loop to get high resolution fast data
-                    // Slow data is repeated from previous fetch
-                    if (rpm != -1.0) { // Only save if engine is responding at least
-                        val currentTime = System.currentTimeMillis()
-                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
-                        val dateStr = sdf.format(java.util.Date(currentTime))
-                        
-                        val data = SensorData(
-                            sessionId = sessionId,
-                            timestamp = currentTime,
-                            date = dateStr,
-                            engineRpm = rpm,
-                            vehicleSpeed = speed,
-                            engineLoad = load,
-                            throttlePos = throttle,
-                            coolantTemp = coolant,
-                            intakeTemp = intake,
-                            maf = maf,
-                            fuelRate = fuelRate,
-                            engineRunTime = runtime,
-                            longTermFuelTrim1 = ltft1,
-                            shortTermFuelTrim1 = stft1,
-                            intakeManifoldPressure = map,
-                            fuelTankLevel = fuelLevel,
-                            absoluteThrottleB = absThrottleB,
-                            pedalD = pedalD,
-                            pedalE = pedalE,
-                            commandedThrottleActuator = cmdThrottle,
-                            fuelAirCommandedEquivRatio = equivRatio,
-                            absBarometricPressure = baro,
-                            relativeThrottlePos = relThrottle,
-                            timingAdvance = timing,
-                            catTempB1S1 = catB1S1,
-                            catTempB1S2 = catB1S2,
-                            controlModuleVoltage = voltage,
-                            commandedEvapPurge = evaporation
-                        )
-                        
-                        // Run persistence in background to avoid blocking the polling loop
-                        serviceScope.launch(Dispatchers.IO) {
-                            try {
-                                database.sensorDataDao().insert(data)
-                                
-                                // Queue for cloud sync (offline-first)
-                                val syncEntry = SyncQueueEntry(
-                                    userId = userEmail,
-                                    userName = userName,
-                                    deviceId = "device_autokitt_primary",
-                                    sessionId = sessionId,
-                                    timestamp = currentTime,
-                                    date = dateStr,
-                                    engineRpm = rpm,
-                                    vehicleSpeed = speed,
-                                    throttle = throttle,
-                                    engineLoad = load,
-                                    coolantTemp = coolant,
-                                    intakeTemp = intake,
-                                    maf = maf,
-                                    fuelRate = fuelRate,
-                                    runTime = runtime,
-                                    ltft1 = ltft1,
-                                    stft1 = stft1,
-                                    map = map,
-                                    fuelLevel = fuelLevel,
-                                    absThrottleB = absThrottleB,
-                                    pedalD = pedalD,
-                                    pedalE = pedalE,
-                                    cmdThrottle = cmdThrottle,
-                                    equivRatio = equivRatio,
-                                    baro = baro,
-                                    relThrottle = relThrottle,
-                                    timing = timing,
-                                    catB1S1 = catB1S1,
-                                    catB1S2 = catB1S2,
-                                    voltage = voltage,
-                                    evapPurge = evaporation
-                                )
-                                database.syncQueueDao().insert(syncEntry)
-                            } catch (e: Exception) {
-                                Log.e("AutoKITT", "Failed to persist loop data", e)
-                            }
+
+                        // 4. Persistence & Sync
+                        if (rpm != -1.0) {
+                            saveAndSyncData(rpm, speed, load, throttle, coolant)
                         }
+                        
+                    } catch (e: Exception) {
+                        Log.e("AutoKITT", "Polling snap — continuing loop. Error: ${e.message}")
                     }
-                    
+
                     loopCount++
+                    delay(300) // Lowered to keep near 1Hz (6 PIDs ~ 600ms + 300ms delay)
                 }
 
-            } catch (e: IOException) {
-                Log.e("AutoKITT", "Connection failed", e)
-                updateNotification("Connection lost. Retrying in 5s...")
+            } catch (e: Exception) {
+                Log.e("AutoKITT", "OBD-II Communication Fatal Error: ${e.message}", e)
+                updateNotification("Disconnected. Retrying in 5s...")
                 cleanup()
-                delay(5000) // Retry delay
+                delay(5000)
+            }
+        }
+    }
+
+    private fun processStationaryAlerts(speed: Double, rpm: Double) {
+        val currentTime = System.currentTimeMillis()
+        DebugLogger.log(this, "ML_TRACE: Stationary Check Input -> Speed=$speed, RPM=$rpm")
+        // Handling Idle Scenarios
+        if (speed < 1 ) {
+            if (rpm > 1300) {
+                if (!alertedRevvingImmediate) {
+                    sendSystemNotification("Unnecessary Revving", "Don't push the Accelerator paddle whiel Idling.")
+                    alertedRevvingImmediate = true
+                }
+            } else {
+                alertedRevvingImmediate = false
+            }
+
+            if (rpm > 0 && rpm < 1200) {
+                if (idleStartTime == 0L) idleStartTime = currentTime
+                if (!alertedIdle3Min && (currentTime - idleStartTime) > 180000) {
+                    sendSystemNotification("Idle Tip", "Engine has been idling for 3 minutes.")
+                    alertedIdle3Min = true
+                }
+            }
+        } else {
+            idleStartTime = 0L
+            alertedIdle3Min = false
+        }
+    }
+
+    private suspend fun saveAndSyncData(rpm: Double, speed: Double, load: Double, throttle: Double, coolant: Double) {
+        val ts = System.currentTimeMillis()
+        val data = SensorData(
+            sessionId = sessionId,
+            timestamp = ts,
+            date = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date(ts)),
+            engineRpm = rpm,
+            vehicleSpeed = speed,
+            engineLoad = load,
+            throttlePos = throttle,
+            coolantTemp = coolant
+        )
+        try {
+            withContext(Dispatchers.IO) { database.sensorDataDao().insert(data) }
+
+            val syncEntry = SyncQueueEntry(
+                userId = userEmail,
+                userName = userName,
+                deviceId = "OBD_PRIMARY",
+                sessionId = sessionId,
+                timestamp = ts,
+                date = data.date,
+                engineRpm = rpm,
+                vehicleSpeed = speed,
+                throttle = throttle,
+                engineLoad = load,
+                coolantTemp = coolant,
+                runTime = sensorDataMap["runTime"] ?: -1.0,
+                map = sensorDataMap["map"] ?: -1.0,
+                timing = sensorDataMap["timingAdvance"] ?: -1.0,
+                intakeTemp = sensorDataMap["intakeTemp"] ?: -1.0,
+                fuelLevel = sensorDataMap["fuelLevel"] ?: -1.0,
+                baro = sensorDataMap["baro"] ?: -1.0,
+                voltage = sensorDataMap["voltage"] ?: -1.0,
+                equivRatio = sensorDataMap["equivRatio"] ?: -1.0,
+                relThrottle = sensorDataMap["relThrottle"] ?: -1.0,
+                absThrottleB = sensorDataMap["absThrottleB"] ?: -1.0,
+                pedalD = sensorDataMap["pedalD"] ?: -1.0,
+                pedalE = sensorDataMap["pedalE"] ?: -1.0,
+                cmdThrottle = sensorDataMap["throttleCmd"] ?: -1.0,
+                ltft1 = sensorDataMap["ltft1"] ?: -1.0,
+                stft1 = sensorDataMap["stft1"] ?: -1.0,
+                catB1S1 = sensorDataMap["catTempB1S1"] ?: -1.0,
+                catB1S2 = sensorDataMap["catTempB1S2"] ?: -1.0,
+                evapPurge = sensorDataMap["evapPurge"] ?: -1.0
+            )
+            syncManager?.enqueue(syncEntry)
+        } catch (e: Exception) {
+            Log.e("AutoKITT", "Failed to save sensor data: ${e.message}")
+        }
+    }
+
+    private fun logAlert(type: String, text: String, payload: String, severity: String = "INFO", advice: String = "") {
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                database.alertLogDao().insert(com.example.autokitt.database.AlertLog(
+                    timestamp = System.currentTimeMillis(),
+                    alertType = type,
+                    explanationText = text,
+                    jsonPayload = payload,
+                    severity = severity,
+                    advice = advice
+                ))
+            } catch (e: Exception) {
+                Log.e("AutoKITT", "Failed to log alert: ${e.message}")
             }
         }
     }
@@ -542,20 +413,15 @@ class OBDForegroundService : Service() {
         try {
             outputStream?.write((cmd + "\r").toByteArray())
             outputStream?.flush()
-            // Read response (basic implementation)
-           readResponse() 
-        } catch (e: Exception) {
-            Log.e("AutoKITT", "Send failed", e)
-        }
+            readResponse() 
+        } catch (e: Exception) {}
     }
     
-    // Reads until '>' prompt or timeout
     private fun readResponse(): String {
         val buffer = ByteArray(1024)
         val sb = StringBuilder()
-        val timeoutMs = 400 // Reduced from 1000ms to keep the loop snappy
+        val timeoutMs = 400
         val startTime = System.currentTimeMillis()
-
         try {
             while (System.currentTimeMillis() - startTime < timeoutMs) {
                  if (inputStream?.available()!! > 0) {
@@ -563,38 +429,22 @@ class OBDForegroundService : Service() {
                      if (bytes != null && bytes > 0) {
                          val chunk = String(buffer, 0, bytes)
                          sb.append(chunk)
-                         if (chunk.contains(">")) { // Found prompt!
-                             break
-                         }
+                         if (chunk.contains(">")) break
                      }
                  } else {
-                     Thread.sleep(10) // Slightly longer sleep to reduce CPU usage
+                     Thread.sleep(10)
                  }
             }
-        } catch (e: Exception) {
-            Log.e("AutoKITT", "Read failed", e)
-        }
-        
-        val result = sb.toString()
-        // Log.d("AutoKITT", "Raw Read: $result") // Uncomment for deep debugging if needed
-        return result
+        } catch (e: Exception) {}
+        return sb.toString()
     }
 
     private fun pollPID(pid: String): Double {
         try {
             outputStream?.write((pid + "\r").toByteArray())
             outputStream?.flush()
-            // Add small delay to allow ELM to process before we check available()
-            Thread.sleep(50) 
+            Thread.sleep(60) 
             val response = readResponse()
-            
-            // Debug log to see what's happening
-            if (response.isEmpty()) {
-                 Log.w("AutoKITT", "No response for PID: $pid")
-            } else if (!response.contains("41")) {
-                 // Log.d("AutoKITT", "PID $pid Raw: $response")
-            }
-            
             return OBDParser.parse(pid, response)
         } catch (e: Exception) {
             return -1.0
@@ -603,20 +453,25 @@ class OBDForegroundService : Service() {
 
     private fun pollPIDSafe(pid: String): Double {
         var value = pollPID(pid)
-        if (value == -1.0) {
-            // Retry once immediately
-            value = pollPID(pid)
-        }
+        if (value == -1.0) value = pollPID(pid) // Quick retry
         return value
     }
 
-
+    private fun pollDTCs(): List<String> {
+        try {
+            outputStream?.write(("03\r").toByteArray())
+            outputStream?.flush()
+            Thread.sleep(100) 
+            val response = readResponse()
+            return OBDParser.parseDTCs(response)
+        } catch (e: Exception) {
+            return emptyList()
+        }
+    }
 
     private fun cleanup() {
         sendBroadcast(Intent(ACTION_OBD_DISCONNECTED))
-        try {
-            bluetoothSocket?.close()
-        } catch (e: Exception) {}
+        try { bluetoothSocket?.close() } catch (e: Exception) {}
         bluetoothSocket = null
     }
 
@@ -626,49 +481,18 @@ class OBDForegroundService : Service() {
         behaviorAnalyzer?.close()
         faultAnalyzer?.close()
         cleanup()
-
-        val prefs = getSharedPreferences("AutoKITT_Prefs", Context.MODE_PRIVATE)
-        val isGuest = prefs.getBoolean("is_guest_mode", false)
-        if (isGuest && sessionId > 0) {
-            Log.d("AutoKITT", "Guest session ended. Purging recorded data for sessionId: $sessionId")
-            kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
-                try {
-                    database.sensorDataDao().deleteBySessionId(sessionId)
-                    database.alertLogDao().deleteAlertsSince(sessionId)
-                } catch (e: Exception) {
-                    Log.e("AutoKITT", "Failed to purge guest data", e)
-                }
-            }
-        }
-
+        serviceScope.cancel() 
         super.onDestroy()
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
-            
-            // Low priority channel for ongoing foreground service
-            val serviceChannel = NotificationChannel(
-                CHANNEL_ID,
-                "OBD Service Channel",
-                NotificationManager.IMPORTANCE_LOW
-            )
+            val serviceChannel = NotificationChannel(CHANNEL_ID, "ELM327 Service", NotificationManager.IMPORTANCE_LOW)
             manager.createNotificationChannel(serviceChannel)
             
-            // High priority channel for alerts with custom sound
-            val alertChannel = NotificationChannel(
-                ALERT_CHANNEL_ID,
-                "Predictive Fault Alerts",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                val soundUri = Uri.parse("android.resource://${packageName}/${R.raw.alert_beep}")
-                val audioAttributes = AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                    .build()
-                setSound(soundUri, audioAttributes)
-                enableVibration(true)
+            val alertChannel = NotificationChannel(ALERT_CHANNEL_ID, "Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Critical driving and fault alerts"
             }
             manager.createNotificationChannel(alertChannel)
         }
@@ -676,71 +500,51 @@ class OBDForegroundService : Service() {
 
     private fun createNotification(content: String): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("AutoKITT OBD Service")
+            .setContentTitle("AutoKITT Telemetry")
             .setContentText(content)
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth) // Use default icon for POC
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .build()
     }
     
     private fun updateNotification(content: String) {
-        val notification = createNotification(content)
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, notification)
+        manager.notify(NOTIFICATION_ID, createNotification(content))
     }
 
-    private fun sendFaultNotification(reason: String) {
+    private fun sendFaultNotification(title: String, message: String) {
         val manager = getSystemService(NotificationManager::class.java)
-        val soundUri = Uri.parse("android.resource://${packageName}/${R.raw.alert_beep}")
         val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
-            .setContentTitle("Predictive Fault Detected")
-            .setContentText(reason)
+            .setContentTitle(title)
+            .setContentText(message)
             .setSmallIcon(android.R.drawable.stat_sys_warning)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setSound(soundUri)
-            .setDefaults(Notification.DEFAULT_VIBRATE)
             .setAutoCancel(true)
             .build()
-            
         manager.notify("FAULT_ALERT", 2, notification)
     }
 
     private fun sendSystemNotification(title: String, message: String) {
         val manager = getSystemService(NotificationManager::class.java)
-        val soundUri = Uri.parse("android.resource://${packageName}/${R.raw.alert_beep}")
         val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(message)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setSmallIcon(android.R.drawable.stat_sys_warning)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setSound(soundUri)
-            .setDefaults(Notification.DEFAULT_VIBRATE)
             .setAutoCancel(true)
             .build()
-            
         manager.notify(title.hashCode(), notification)
-
-        // Also persist to DB for My Driving Errors screen
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val log = com.example.autokitt.database.AlertLog(
-                timestamp = System.currentTimeMillis(),
-                alertType = "DRIVER_TIP",
-                explanationText = "$title: $message",
-                jsonPayload = ""
-            )
-            database.alertLogDao().insert(log)
-        }
     }
 
-    private fun broadcastData(rpm: Double, speed: Double, load: Double, temp: Double, intake: Double, voltage: Double, stft: Double) {
+    private fun broadcastData(rpm: Double, speed: Double, load: Double, temp: Double, throttle: Double) {
         val intent = Intent(ACTION_OBD_DATA).apply {
             putExtra(EXTRA_RPM, rpm)
             putExtra(EXTRA_SPEED, speed)
             putExtra(EXTRA_LOAD, load)
             putExtra(EXTRA_TEMP, temp)
-            putExtra(EXTRA_INTAKE, intake)
-            putExtra(EXTRA_VOLTAGE, voltage)
-            putExtra(EXTRA_STFT, stft)
+            putExtra(EXTRA_THROTTLE, throttle)
+            putExtra(EXTRA_INTAKE, sensorDataMap["map"] ?: -1.0) // Map to existing UI field
+            putExtra(EXTRA_VOLTAGE, sensorDataMap["voltage"] ?: -1.0)
+            putExtra(EXTRA_STFT, sensorDataMap["stft1"] ?: -1.0)
         }
         sendBroadcast(intent)
     }

@@ -6,181 +6,120 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 
 class DriverBehaviorAnalyzer(private val context: Context) {
-
     private var interpreter: Interpreter? = null
-    private val featureColumns = mutableListOf<String>()
-    private val scalerMean = mutableMapOf<String, Float>()
-    private val scalerScale = mutableMapOf<String, Float>()
-
-    private val adviceMap = mapOf(
-        "Harsh acceleration" to "Accelerate more smoothly",
-        "Aggressive steering" to "Avoid sudden steering changes",
-        "Over-speed tendency" to "Maintain a steadier and safer speed",
-        "High engine strain" to "Reduce throttle and engine load"
-    )
-
+    private var means = FloatArray(0)
+    private var scales = FloatArray(0)
+    private var featureNames = listOf<String>()
+    
     init {
         try {
-            // 1. Load Interpreter
-            val modelBuffer = loadModelFile("models/driver_behavior_alert_model/driver_behavior_model.tflite")
-            interpreter = Interpreter(modelBuffer)
-
-            // 2. Load Feature Columns
-            val fcJson = loadJSONFromAsset("models/driver_behavior_alert_model/driver_behavior_feature_order.json")
-            val fcArray = JSONArray(fcJson)
-            for (i in 0 until fcArray.length()) {
-                featureColumns.add(fcArray.getString(i))
-            }
-
-            // 3. Load Scaler Params
-            val spJson = loadJSONFromAsset("models/driver_behavior_alert_model/driver_behavior_scaler.json")
-            val spObj = JSONObject(spJson)
-            val meanArray = spObj.getJSONArray("mean")
-            val scaleArray = spObj.getJSONArray("scale")
-            
-            for (i in 0 until featureColumns.size) {
-                val feature = featureColumns[i]
-                scalerMean[feature] = meanArray.getDouble(i).toFloat()
-                scalerScale[feature] = scaleArray.getDouble(i).toFloat()
-            }
-
-            Log.d("DriverBehavior", "Model and metadata loaded successfully.")
+            val options = Interpreter.Options()
+            interpreter = Interpreter(loadModelFile(), options)
+            loadScaler()
+            loadFeatureColumns()
         } catch (e: Exception) {
-            Log.e("DriverBehavior", "Error initializing analyzer", e)
+            Log.e("AutoKITT_ML", "Failed to initialize DriverBehaviorAnalyzer: ${e.message}")
         }
     }
 
-    private fun loadModelFile(fileName: String): MappedByteBuffer {
-        val fileDescriptor = context.assets.openFd(fileName)
+    private fun loadModelFile(): MappedByteBuffer {
+        val fileDescriptor = context.assets.openFd("models/driver_behavior_alert_model/driver_behavior_alert_model.tflite")
         val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
         val fileChannel = inputStream.channel
-        val startOffset = fileDescriptor.startOffset
-        val declaredLength = fileDescriptor.declaredLength
-        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY, fileDescriptor.startOffset, fileDescriptor.declaredLength)
     }
 
-    private fun loadJSONFromAsset(fileName: String): String {
-        return context.assets.open(fileName).bufferedReader().use { it.readText() }
+    private fun loadScaler() {
+        val jsonStr = context.assets.open("models/driver_behavior_alert_model/scaler.json").bufferedReader().use { it.readText() }
+        val jsonObject = JSONObject(jsonStr)
+        val meanArray = jsonObject.getJSONArray("mean")
+        val scaleArray = jsonObject.getJSONArray("scale")
+        
+        means = FloatArray(meanArray.length()) { i -> meanArray.getDouble(i).toFloat() }
+        scales = FloatArray(scaleArray.length()) { i -> scaleArray.getDouble(i).toFloat() }
     }
 
-    data class BehaviorResult(
-        val isAggressive: Boolean,
-        val probability: Float,
-        val reasons: List<String>,
-        val jsonPayload: String,
-        val explanationText: String
-    )
-
-    private val sensorToFeatureMap = mapOf(
-        "voltage" to "battery_voltage",
-        "calcLoad" to "engine_load",
-        "coolantTemp" to "engine_coolant_temp",
-        "map" to "intake_manifold_pressure",
-        "rpm" to "engine_rpm",
-        "speed" to "vehicle_speed",
-        "timingAdvance" to "ignition_timing_advance",
-        "intakeTemp" to "intake_air_temp",
-        "absThrottle" to "throttle_position",
-        "controlModuleVoltage" to "control_module_voltage",
-        "absLoad" to "absolute_load",
-        "relThrottle" to "relative_throttle_position",
-        "absThrottleB" to "throttle_position_b",
-        "pedalD" to "accelerator_pedal_d",
-        "pedalE" to "accelerator_pedal_e",
-        "throttleCmd" to "throttle_actuator_control",
-        "steeringAngle" to "steering_angle",
-        "steeringRate" to "steering_angular_velocity",
-        "stft1" to "short_term_fuel_trim_bank_1",
-        "ltft1" to "long_term_fuel_trim_bank_1"
-    )
+    private fun loadFeatureColumns() {
+        val jsonStr = context.assets.open("models/driver_behavior_alert_model/feature_columns.json").bufferedReader().use { it.readText() }
+        val jsonArray = JSONArray(jsonStr)
+        val list = mutableListOf<String>()
+        for (i in 0 until jsonArray.length()) {
+            list.add(jsonArray.getString(i))
+        }
+        featureNames = list
+    }
 
     fun analyze(sensorData: Map<String, Double>): BehaviorResult? {
-        if (interpreter == null || featureColumns.isEmpty()) return null
-
-        val unscaledFeatures = mutableMapOf<String, Double>()
-        for (featureName in featureColumns) {
-            val sensorKey = sensorToFeatureMap.entries.firstOrNull { it.value == featureName }?.key
-            val value = if (sensorKey != null && sensorData.containsKey(sensorKey)) {
-                val sensorVal = sensorData[sensorKey]!!
-                if (sensorVal != -1.0) sensorVal else (scalerMean[featureName]?.toDouble() ?: 0.0)
-            } else {
-                scalerMean[featureName]?.toDouble() ?: 0.0
-            }
-            unscaledFeatures[featureName] = value
-        }
-
-        val inputValues = FloatArray(featureColumns.size)
-        for (i in featureColumns.indices) {
-            val feature = featureColumns[i]
-            val value = unscaledFeatures[feature] ?: 0.0
-            val mean = scalerMean[feature] ?: 0f
-            val scale = scalerScale[feature] ?: 1f
-            val scaled = if (scale != 0f) ((value - mean) / scale).toFloat() else 0f
-            inputValues[i] = scaled
-        }
-
-        val inputTensor = arrayOf(inputValues)
-        val outputTensor = Array(1) { FloatArray(1) }
-
-        try {
-            interpreter?.run(inputTensor, outputTensor)
-        } catch (e: Exception) {
-            Log.e("DriverBehavior", "Inference failed", e)
-            return null
-        }
-
-        val probability = outputTensor[0][0]
-        val isAggressive = probability > 0.5f
-
-        val reasons = mutableListOf<String>()
-        val reasonScoresObj = JSONObject()
+        if (interpreter == null || means.isEmpty() || featureNames.isEmpty()) return null
         
+        // 1. Map raw input to features
+        val rawFeatures = FloatArray(13)
+        for (i in featureNames.indices) {
+            val feat = featureNames[i]
+            val value = when (feat) {
+                "engine_load" -> sensorData["calcLoad"] ?: 0.0
+                "engine_coolant_temp" -> sensorData["coolantTemp"] ?: 0.0
+                "intake_manifold_pressure" -> sensorData["map"] ?: 0.0
+                "engine_rpm" -> sensorData["rpm"] ?: 0.0
+                "vehicle_speed" -> sensorData["speed"] ?: 0.0
+                "ignition_timing_advance" -> sensorData["timingAdvance"] ?: 0.0
+                "throttle_position" -> sensorData["absThrottle"] ?: 0.0
+                "relative_throttle_position" -> sensorData["relThrottle"] ?: 0.0
+                "accelerator_pedal_d" -> sensorData["pedalD"] ?: 0.0
+                "accelerator_pedal_e" -> sensorData["pedalE"] ?: 0.0
+                "throttle_actuator_control" -> sensorData["throttleCmd"] ?: 0.0
+                "steering_angle" -> 0.0 // OBD missing it usually
+                "steering_angular_velocity" -> 0.0 // OBD missing it usually
+                else -> 0.0
+            }
+            rawFeatures[i] = value.toFloat()
+        }
+
+        // 2. Scale
+        val inputBuffer = ByteBuffer.allocateDirect(13 * 4)
+        inputBuffer.order(ByteOrder.nativeOrder())
+        for (i in 0 until 13) {
+            val scaled = (rawFeatures[i] - means[i]) / scales[i]
+            inputBuffer.putFloat(scaled)
+        }
+
+        // 3. Inference
+        val outputBuffer = ByteBuffer.allocateDirect(1 * 4)
+        outputBuffer.order(ByteOrder.nativeOrder())
+        interpreter?.run(inputBuffer, outputBuffer)
+        
+        outputBuffer.rewind()
+        val probability = outputBuffer.float
+        
+        val isAggressive = probability > 0.75f
+        val rpm = sensorData["rpm"] ?: 0.0
+        val reasonsList = mutableListOf<String>()
+        var explanation = if (isAggressive) "Aggressive Driving pattern detected." else "Driving pattern is normal."
+
         if (isAggressive) {
-            // Heuristic Reasoning for Aggressive Behavior
-            val rpm = sensorData["rpm"] ?: 0.0
-            if (rpm > 4000.0) {
-                reasons.add("High engine strain")
-            }
-
-            val speed = sensorData["speed"] ?: 0.0
-            if (speed > 110.0) {
-                reasons.add("Over-speed tendency")
-            }
-
-            val throttle = sensorData["absThrottle"] ?: 0.0
-            if (throttle > 80.0) {
-                reasons.add("Harsh acceleration")
-            }
-
-            // Note: Steering heuristics would require time-series delta, which we don't have in this single-point analyze call.
-            // But we can add a fallback if no heuristics trigger.
-            if (reasons.isEmpty()) {
-                reasons.add("Irregular driving pattern")
+            reasonsList.add("High dynamic variance based on sensors")
+            if (rpm > 4000) {
+                reasonsList.add("High RPM Engine Stress")
+                explanation = "Aggressive Driving: Engine stress detected at ${rpm.toInt()} RPM"
             }
         }
-
-        val status = if (isAggressive) "Aggressive" else "Normal"
-        val outputJson = JSONObject()
-        outputJson.put("status", status)
-        outputJson.put("score", String.format("%.2f", probability).toDouble())
-        outputJson.put("reasons", JSONArray(reasons))
         
-        val explanationText = if (isAggressive) {
-            val adviceStr = reasons.mapNotNull { adviceMap[it] }.joinToString(". ")
-            "Aggressive driving detected: ${reasons.joinToString(", ")}. $adviceStr"
-        } else {
-            "Driving smoothly."
-        }
-
-        return BehaviorResult(isAggressive, probability, reasons, outputJson.toString(2), explanationText)
+        return BehaviorResult(
+            isAggressive = isAggressive,
+            probability = probability,
+            reasons = reasonsList,
+            explanationText = explanation,
+            jsonPayload = "{ \"prob\": $probability, \"rpm\": $rpm }"
+        )
     }
 
     fun close() {
         interpreter?.close()
-        interpreter = null
     }
 }

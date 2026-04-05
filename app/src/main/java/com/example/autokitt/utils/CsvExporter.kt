@@ -2,63 +2,58 @@ package com.example.autokitt.utils
 
 import com.example.autokitt.database.SensorData
 import java.io.OutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.io.PrintWriter
 
 object CsvExporter {
 
-    fun export(dataList: List<SensorData>, outputStream: OutputStream) {
-        val writer = outputStream.bufferedWriter()
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+    private val HEADERS = listOf(
+        "Timestamp", "Date", "RPM", "Speed", "Load", "Throttle", "Coolant",
+        "RunTime", "IntakePressure", "TimingAdvance", "IntakeTemp", "FuelLevel",
+        "BaroPressure", "Voltage", "EquivRatio", "RelThrottle", "AbsThrottleB",
+        "PedalD", "PedalE", "CmdThrottle", "LTFT1", "STFT1", "CatB1S1", "CatB1S2",
+        "EvapPurge", "Warmups"
+    )
 
-        try {
-            // Write Header
-            writer.write("DeviceID,SessionID,Timestamp,Date,EngineRPM,VehicleSpeed,EngineLoad," +
-                    "ThrottlePos,CoolantTemp,IntakeTemp,MAF,FuelRate,EngineRunTime,LTFT1,STFT1," +
-                    "IntakeManifoldPressure,FuelTankLevel,AbsoluteThrottleB,PedalD,PedalE," +
-                    "CommandedThrottleActuator,FuelAirCommandedEquivRatio,AbsBarometricPressure," +
-                    "RelativeThrottlePos,TimingAdvance,CatTempB1S1,CatTempB1S2,ControlModuleVoltage,CommandedEvapPurge\n")
-
-            // Write Data
-            for (data in dataList) {
-                val dateStr = dateFormat.format(Date(data.timestamp))
-                val line = StringBuilder()
-                    .append("device_autokitt_primary,")
-                    .append("${data.sessionId},")
-                    .append("${data.timestamp},")
-                    .append("$dateStr,")
-                    .append("${data.engineRpm},")
-                    .append("${data.vehicleSpeed},")
-                    .append("${data.engineLoad},")
-                    .append("${data.throttlePos},")
-                    .append("${data.coolantTemp},")
-                    .append("${data.intakeTemp},")
-                    .append("${data.maf},")
-                    .append("${data.fuelRate},")
-                    .append("${data.engineRunTime},")
-                    .append("${data.longTermFuelTrim1},")
-                    .append("${data.shortTermFuelTrim1},")
-                    .append("${data.intakeManifoldPressure},")
-                    .append("${data.fuelTankLevel},")
-                    .append("${data.absoluteThrottleB},")
-                    .append("${data.pedalD},")
-                    .append("${data.pedalE},")
-                    .append("${data.commandedThrottleActuator},")
-                    .append("${data.fuelAirCommandedEquivRatio},")
-                    .append("${data.absBarometricPressure},")
-                    .append("${data.relativeThrottlePos},")
-                    .append("${data.timingAdvance},")
-                    .append("${data.catTempB1S1},")
-                    .append("${data.catTempB1S2},")
-                    .append("${data.controlModuleVoltage},")
-                    .append("${data.commandedEvapPurge}\n")
-                    .toString()
-                writer.write(line)
-            }
-        } finally {
-            writer.flush()
-            writer.close()
+    fun export(data: List<SensorData>, outputStream: OutputStream) {
+        val writer = PrintWriter(outputStream)
+        
+        // Write Header
+        writer.println(HEADERS.joinToString(","))
+        
+        // Write Data Rows
+        data.forEach { row ->
+            val values = listOf(
+                row.timestamp.toString(),
+                row.date,
+                row.engineRpm.toString(),
+                row.vehicleSpeed.toString(),
+                row.engineLoad.toString(),
+                row.throttlePos.toString(),
+                row.coolantTemp.toString(),
+                row.runTime.toString(),
+                row.intakePressure.toString(),
+                row.timingAdvance.toString(),
+                row.intakeTemp.toString(),
+                row.fuelLevel.toString(),
+                row.baroPressure.toString(),
+                row.controlModuleVoltage.toString(),
+                row.equivRatio.toString(),
+                row.relativeThrottle.toString(),
+                row.absoluteThrottleB.toString(),
+                row.pedalD.toString(),
+                row.pedalE.toString(),
+                row.cmdThrottle.toString(),
+                row.ltft1.toString(),
+                row.stft1.toString(),
+                row.catTempB1S1.toString(),
+                row.catTempB1S2.toString(),
+                row.evapPurge.toString(),
+                row.warmups.toString()
+            )
+            writer.println(values.joinToString(","))
         }
+        
+        writer.flush()
+        // No closing of outputStream here, the caller (ExportActivity) handles it with .use {}
     }
 }

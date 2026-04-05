@@ -26,4 +26,7 @@ interface AlertLogDao {
 
     @Query("DELETE FROM alert_logs WHERE timestamp >= :startTime")
     suspend fun deleteAlertsSince(startTime: Long)
+
+    @Query("SELECT * FROM alert_logs WHERE severity = :severity ORDER BY timestamp DESC")
+    suspend fun getAlertsBySeverity(severity: String): List<AlertLog>
 }

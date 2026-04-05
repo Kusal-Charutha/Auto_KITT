@@ -65,7 +65,7 @@
             android:visibility="gone"
             android:layout_marginBottom="24dp"/>
 
-    <!-- Driving Status Card -->
+        <!-- Driving Status Card -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

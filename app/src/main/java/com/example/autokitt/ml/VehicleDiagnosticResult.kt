@@ -1,11 +1,17 @@
 package com.example.autokitt.ml
 
-data class VehicleDiagnosticResult(
-    val status: String,
+data class BehaviorResult(
+    val isAggressive: Boolean,
+    val probability: Float,
+    val reasons: List<String>,
+    val explanationText: String,
+    val jsonPayload: String
+)
+
+data class FaultResult(
+    val status: String, // "Good", "Warning", "Faulty", "Requires Maintenance"
     val probability: Float,
     val possibleReason: String,
-    val missingFeatures: List<String>,
-    val timestamp: Long,
-    val jsonPayload: String,
-    val explanationText: String
+    val explanationText: String,
+    val jsonPayload: String
 )

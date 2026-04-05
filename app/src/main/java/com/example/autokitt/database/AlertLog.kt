@@ -7,7 +7,9 @@ import androidx.room.PrimaryKey
 data class AlertLog(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val timestamp: Long,
-    val alertType: String, // "FAULT" or "BEHAVIOR"
+    val alertType: String, // "FAULT", "BEHAVIOR", or "DRIVER_TIP"
     val explanationText: String,
-    val jsonPayload: String = ""
+    val jsonPayload: String = "",
+    val severity: String = "INFO",  // "INFO", "WARNING", or "CRITICAL"
+    val advice: String = ""
 )

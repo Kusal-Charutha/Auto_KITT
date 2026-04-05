@@ -56,4 +56,16 @@ interface SensorDataDao {
 
     @Query("SELECT AVG(vehicleSpeed) FROM sensor_data WHERE sessionId = :sessionId AND vehicleSpeed > 0")
     suspend fun getAvgSpeedForSession(sessionId: Long): Float?
+
+    @Query("SELECT SUM(max_ts - min_ts) FROM (SELECT MAX(timestamp) as max_ts, MIN(timestamp) as min_ts FROM sensor_data WHERE timestamp BETWEEN :start AND :end GROUP BY sessionId)")
+    suspend fun getTotalConnectedTime(start: Long, end: Long): Long?
+
+    @Query("SELECT MAX(timestamp) - MIN(timestamp) FROM sensor_data WHERE sessionId = :sessionId")
+    suspend fun getTotalConnectedTimeForSession(sessionId: Long): Long?
+
+    @Query("SELECT COUNT(*) FROM sensor_data WHERE engineRpm > 0 AND timestamp BETWEEN :start AND :end")
+    suspend fun countTotalDetections(start: Long, end: Long): Int
+
+    @Query("SELECT COUNT(*) FROM sensor_data WHERE engineRpm > 0 AND sessionId = :sessionId")
+    suspend fun countTotalDetectionsForSession(sessionId: Long): Int
 }

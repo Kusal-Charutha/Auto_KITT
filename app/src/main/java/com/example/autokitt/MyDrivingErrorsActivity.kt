@@ -11,6 +11,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import java.util.Date
 import java.util.Locale
 
@@ -18,6 +22,18 @@ class MyDrivingErrorsActivity : AppCompatActivity() {
 
     private lateinit var llBehaviorHistory: LinearLayout
     private lateinit var db: AppDatabase
+    
+    private val behaviorUpdateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == OBDForegroundService.ACTION_BEHAVIOR_ALERT) {
+                // To prevent reloading for "Good" events, check if it was aggressive
+                val isAggressive = intent.getBooleanExtra(OBDForegroundService.EXTRA_IS_AGGRESSIVE, false)
+                if (isAggressive) {
+                    loadBehaviorHistory()
+                }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,6 +53,23 @@ class MyDrivingErrorsActivity : AppCompatActivity() {
         }
 
         loadBehaviorHistory()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val filter = IntentFilter(OBDForegroundService.ACTION_BEHAVIOR_ALERT)
+        ContextCompat.registerReceiver(
+            this,
+            behaviorUpdateReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        loadBehaviorHistory()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        unregisterReceiver(behaviorUpdateReceiver)
     }
 
     private fun loadBehaviorHistory() {
@@ -61,14 +94,43 @@ class MyDrivingErrorsActivity : AppCompatActivity() {
                 val card = layoutInflater.inflate(R.layout.item_alert_log, llBehaviorHistory, false)
                 val tvTime: TextView = card.findViewById(R.id.tvAlertTime)
                 val tvText: TextView = card.findViewById(R.id.tvAlertExplanation)
+                val tvAdvice: TextView = card.findViewById(R.id.tvAlertAdvice)
+                val tvSeverity: TextView = card.findViewById(R.id.tvAlertSeverity)
+                val viewSeverityDot: android.view.View = card.findViewById(R.id.viewSeverityDot)
 
                 tvTime.text = sdf.format(Date(alert.timestamp))
                 tvText.text = alert.explanationText
 
-                // Color-code by alert type
-                val bgRes = when (alert.alertType) {
-                    "DRIVER_TIP" -> R.drawable.bg_card_outline_light_gray
-                    else -> R.drawable.bg_card_outline_light_gray  // BEHAVIOR also matches
+                // Color-code by severity
+                val severityColor = when (alert.severity) {
+                    "CRITICAL" -> R.color.danger_red
+                    "WARNING" -> R.color.warning_yellow
+                    "INFO" -> R.color.info_blue
+                    else -> R.color.text_secondary
+                }
+                viewSeverityDot.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(this@MyDrivingErrorsActivity, severityColor)
+                )
+
+                // Show severity label for BEHAVIOR alerts (not DRIVER_TIP)
+                if (alert.alertType == "BEHAVIOR" && alert.severity.isNotBlank()) {
+                    tvSeverity.text = alert.severity
+                    tvSeverity.setTextColor(ContextCompat.getColor(this@MyDrivingErrorsActivity, severityColor))
+                    tvSeverity.visibility = android.view.View.VISIBLE
+                }
+
+                // Show advice if available
+                if (alert.advice.isNotBlank()) {
+                    tvAdvice.text = "\uD83D\uDCA1 ${alert.advice}"
+                    tvAdvice.visibility = android.view.View.VISIBLE
+                }
+
+                // Severity-based card background
+                val bgRes = when (alert.severity) {
+                    "CRITICAL" -> R.drawable.bg_card_outline_red
+                    "WARNING" -> R.drawable.bg_card_outline_yellow
+                    "INFO" -> R.drawable.bg_card_outline_green
+                    else -> R.drawable.bg_card_outline_light_gray
                 }
                 card.setBackgroundResource(bgRes)
 
