@@ -31,7 +31,6 @@ import java.util.Calendar
 import java.util.Date
 import com.example.autokitt.database.AppDatabase
 import com.example.autokitt.utils.CsvExporter
-import com.example.autokitt.utils.DebugLogger
 import com.bumptech.glide.Glide
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -86,41 +85,15 @@ class MainActivity : ComponentActivity() {
         setContentView(R.layout.activity_main)
         
         database = AppDatabase.getDatabase(this)
-        // --- AI Health Check on Launch ---
-        DebugLogger.log(this, "APP_LAUNCH: Checking AI Assets...")
-        val assetList = listOf(
-            "models/driver_behavior_alert_model/driver_behavior_alert_model.tflite",
-            "models/driver_behavior_alert_model/scaler.json",
-            "models/driver_behavior_alert_model/feature_columns.json",
-            "models/vehicle_fault_prediction_model/vehicle_fault_model.tflite",
-            "models/vehicle_fault_prediction_model/scaler.json",
-            "models/vehicle_fault_prediction_model/feature_order.json"
-        )
-        
-        assetList.forEach { path ->
-            try {
-                assets.open(path).use { 
-                    DebugLogger.log(this, "ASSET_CHECK: FOUND -> $path")
-                }
-            } catch (e: Exception) {
-                DebugLogger.log(this, "ASSET_CHECK: MISSING !! -> $path")
-            }
-        }
+
         val btnConnectPaired = findViewById<Button>(R.id.btnConnectPaired) // Still a Button
         val btnSettings = findViewById<View>(R.id.btnSettings) // Now a LinearLayout
         val btnDashboard = findViewById<View>(R.id.btnDashboard) // Now a FrameLayout
         val btnExport = findViewById<View>(R.id.btnExport) // Now a FrameLayout
         val btnDisconnect = findViewById<Button>(R.id.btnDisconnect) // Still a Button
         
-        // This list is now hidden/unused in layout, but kept for logic references
-        // We will remove logic references soon
-        val btnMyDriving = findViewById<View>(R.id.btnMyDriving)
-        val btnVehicleHealth = findViewById<View>(R.id.btnVehicleHealth)
-
-        // This list is now hidden/unused in layout, but kept for logic references
-        // We will remove logic references soon
+        // Hidden list kept for logic references - legacy
         val listView = findViewById<ListView>(R.id.deviceList)
-        
         listAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, deviceNames)
         listView.adapter = listAdapter
 
@@ -129,7 +102,6 @@ class MainActivity : ComponentActivity() {
 
 
         btnConnectPaired.setOnClickListener {
-            Log.d("AutoKITT", "Connect Button Clicked")
             // Toast.makeText(this, "Button Clicked!", Toast.LENGTH_SHORT).show()
 
             if (bluetoothAdapter == null) {
@@ -145,15 +117,11 @@ class MainActivity : ComponentActivity() {
             }
 
             pendingAction = { 
-                Log.d("AutoKITT", "Pending Action Triggered")
                 showPairedDevicesDialog() 
             }
             
             if (checkPermissions()) {
-                Log.d("AutoKITT", "Permissions Granted - Showing Dialog")
                 showPairedDevicesDialog()
-            } else {
-                 Log.d("AutoKITT", "Requesting Permissions")
             }
         }
 
@@ -200,13 +168,8 @@ class MainActivity : ComponentActivity() {
         val account = GoogleSignIn.getLastSignedInAccount(this)
 
         if (account != null) {
-            Log.d("AutoKITT", "Account found: ${account.displayName}")
-            Log.d("AutoKITT", "Photo URL: ${account.photoUrl}")
             
             if (account.photoUrl != null) {
-                // Log the URL for debugging
-                Log.d("AutoKITT", "Loading Photo URL: ${account.photoUrl}")
-                
                 Glide.with(this)
                     .load(account.photoUrl)
                     .placeholder(R.mipmap.ic_launcher_round)
@@ -219,7 +182,7 @@ class MainActivity : ComponentActivity() {
                 // Toast.makeText(this, "No profile photo found in account", Toast.LENGTH_SHORT).show()
             }
         } else {
-             Log.d("AutoKITT", "Account is null")
+
         }
 
         ivProfile.setOnClickListener { view ->
@@ -262,11 +225,9 @@ class MainActivity : ComponentActivity() {
         }
 
         return if (missingPermissions.isNotEmpty()) {
-            Log.d("AutoKITT", "Missing permissions: ${missingPermissions.joinToString()}")
             requestPermissionLauncher.launch(missingPermissions.toTypedArray())
             false
         } else {
-            Log.d("AutoKITT", "All permissions present")
             true
         }
     }
@@ -312,21 +273,16 @@ class MainActivity : ComponentActivity() {
 
 
     private fun showPairedDevicesDialog() {
-        Log.d("AutoKITT", "showPairedDevicesDialog Called")
         // Permissions already checked by caller logic via pendingAction pattern
         // But double check doesn't hurt if called directly
         
         // On Android 12+ (API 31+), we need BLUETOOTH_CONNECT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                 Log.d("AutoKITT", "Permission NOT granted in showPairedDevicesDialog")
-                 // Should not happen if flow is correct, but safe fallback
                  return
             }
         }
         
-        Log.d("AutoKITT", "Fetching bonded devices")
-
         val pairedDevices = bluetoothAdapter?.bondedDevices?.toList() ?: emptyList()
         if (pairedDevices.isEmpty()) {
             Toast.makeText(this, "No paired devices found! Please pair your OBD device in Android Settings.", Toast.LENGTH_LONG).show()

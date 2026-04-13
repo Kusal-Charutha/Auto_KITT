@@ -33,7 +33,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import com.example.autokitt.database.AppDatabase
 import com.example.autokitt.database.SensorData
-import com.example.autokitt.utils.DebugLogger
 import com.example.autokitt.ml.DriverBehaviorAnalyzer
 import com.example.autokitt.ml.VehicleFaultAnalyzer
 import com.example.autokitt.utils.DtcDictionary
@@ -154,9 +153,6 @@ class OBDForegroundService : Service() {
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, createNotification("Connecting to OBD-II..."))
             
-            // Log started state for verification
-            DebugLogger.log(this, "SERVICE_START: Connecting to OBD loop...")
-            
             serviceScope.launch {
                 sessionId = System.currentTimeMillis()
                 connectAndPoll(address)
@@ -216,7 +212,7 @@ class OBDForegroundService : Service() {
                         sensorDataMap[key] = pollPIDSafe(pid)
                         diagIndex = (diagIndex + 1) % diagPids.size
 
-                        if (loopCount % 10 == 0) Log.d("AutoKITT", "Fast Poll: RPM=$rpm, SPD=$speed | Slow Poll: $key=${sensorDataMap[key]}")
+
 
                         // 1. UI Broadcast (Legacy support for Dashboard)
                         if (rpm != -1.0 && speed != -1.0) {
@@ -324,7 +320,7 @@ class OBDForegroundService : Service() {
 
     private fun processStationaryAlerts(speed: Double, rpm: Double) {
         val currentTime = System.currentTimeMillis()
-        DebugLogger.log(this, "ML_TRACE: Stationary Check Input -> Speed=$speed, RPM=$rpm")
+
         // Handling Idle Scenarios
         if (speed < 1 ) {
             if (rpm > 1300) {

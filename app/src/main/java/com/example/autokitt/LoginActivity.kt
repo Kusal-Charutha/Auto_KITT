@@ -2,7 +2,6 @@ package com.example.autokitt
 
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.gms.auth.api.signin.GoogleSignIn
@@ -17,7 +16,6 @@ class LoginActivity : AppCompatActivity() {
 
     private lateinit var mGoogleSignInClient: GoogleSignInClient
     private val RC_SIGN_IN = 9001
-    private val TAG = "LoginActivity"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,7 +34,6 @@ class LoginActivity : AppCompatActivity() {
 
         // Set the dimensions of the sign-in button.
         val signInButton = findViewById<android.view.View>(R.id.sign_in_button)
-        // signInButton.setSize(SignInButton.SIZE_STANDARD) // Removed as we are using custom view
 
         signInButton.setOnClickListener {
             signIn()
@@ -47,7 +44,6 @@ class LoginActivity : AppCompatActivity() {
             val prefs = getSharedPreferences("AutoKITT_Prefs", android.content.Context.MODE_PRIVATE)
             prefs.edit().putBoolean("is_guest_mode", true).apply()
             
-            Log.d(TAG, "Entering Guest Mode, navigating to MainActivity")
             Toast.makeText(this, "Continuing as Guest (Data will not be saved)", Toast.LENGTH_LONG).show()
             val intent = Intent(this, MainActivity::class.java)
             startActivity(intent)
@@ -88,7 +84,6 @@ class LoginActivity : AppCompatActivity() {
         } catch (e: ApiException) {
             // The ApiException status code indicates the detailed failure reason.
             // Please refer to the GoogleSignInStatusCodes class reference for more information.
-            Log.w(TAG, "signInResult:failed code=" + e.statusCode)
             Toast.makeText(this, "Sign-in failed with code: " + e.statusCode, Toast.LENGTH_LONG).show()
             updateUI(null)
         }
@@ -103,13 +98,11 @@ class LoginActivity : AppCompatActivity() {
                 .putString("user_name", account.displayName ?: "")
                 .apply()
 
-            Log.d(TAG, "Sign-in successful, navigating to MainActivity")
             Toast.makeText(this, "Signed in as: " + account.displayName, Toast.LENGTH_LONG).show()
             val intent = Intent(this, MainActivity::class.java)
             startActivity(intent)
             finish()
         } else {
-            Log.d(TAG, "Sign-in failed or account is null")
         }
     }
 }

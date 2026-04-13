@@ -1,7 +1,6 @@
 package com.example.autokitt.ml
 
 import android.content.Context
-import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import org.tensorflow.lite.Interpreter
@@ -32,9 +31,8 @@ class VehicleFaultAnalyzer(private val context: Context) {
             loadFeatureColumns()
             loadFaultThresholds()
             loadFaultReasonMap()
-            Log.i("AutoKITT_ML", "VehicleFaultAnalyzer initialized with ${faultThresholds.size} threshold entries")
         } catch (e: Exception) {
-            Log.e("AutoKITT_ML", "Failed to initialize VehicleFaultAnalyzer: ${e.message}")
+            // Initialization failed
         }
     }
 
