@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/white"
+    android:orientation="vertical"
+    android:padding="24dp"
+    tools:context=".MainActivity">
+
+    <!-- Header / Title -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp">
+
+        <!-- Logo (Background) -->
+        <ImageView
+            android:id="@+id/ivLogoHeader"
+            android:layout_width="match_parent"
+            android:layout_height="150dp"
+            android:layout_centerHorizontal="true"
+            android:layout_marginTop="16dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:adjustViewBounds="true"
+            android:scaleType="fitCenter"
+            android:src="@drawable/untitled_design"
+            tools:src="@drawable/autokitt_logo" />
+
+        <!-- Icons anchored to Top-Right (Foreground) -->
+        <ImageView
+            android:id="@+id/ivProfile"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentEnd="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:src="@mipmap/ic_launcher_round"
+            tools:src="@mipmap/ic_launcher_round" />
+
+    </RelativeLayout>
+
+    <Button
+        android:id="@+id/btnConnectPaired"
+        android:layout_width="match_parent"
+        android:layout_height="101dp"
+        android:layout_marginBottom="24dp"
+        android:background="@drawable/bg_button_white_pill"
+        android:backgroundTint="#4C89EF"
+        android:drawableLeft="@drawable/ic_bluetooth"
+        android:drawablePadding="12dp"
+        android:elevation="4dp"
+        android:foreground="?attr/selectableItemBackground"
+        android:gravity="center_vertical|start"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:text="Connect Paired Device"
+        android:textColor="@color/white"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
+    <!-- 2x2 Grid using nested LinearLayouts -->
+    <!-- Row 1 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:orientation="horizontal">
+
+        <!-- Dashboard Tile -->
+        <FrameLayout
+            android:id="@+id/btnDashboard"
+            android:layout_width="0dp"
+            android:layout_height="120dp"
+            android:layout_marginEnd="12dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_card_blue_light"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:layout_width="98dp"
+                    android:layout_height="63dp"
+                    android:layout_marginBottom="8dp"
+                    android:src="@drawable/ic_dashboard"
+                    android:tint="@color/black" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Dashboard"
+                    android:textColor="@color/black"
+                    android:textSize="14sp" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- My Driving Tile -->
+        <FrameLayout
+            android:id="@+id/btnMyDriving"
+            android:layout_width="0dp"
+            android:layout_height="120dp"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_card_blue_light"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground">
+
+            <LinearLayout
+                android:layout_width="99dp"
+                android:layout_height="95dp"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:orientation="vertical">
+                <!-- My Driving Icon -->
+                <ImageView
+                    android:id="@+id/ivMyDrivingIcon"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginBottom="8dp"
+                    android:src="@drawable/ic_my_driving" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="My Driving"
+                    android:textColor="@color/black"
+                    android:textSize="14sp" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- Row 2 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="24dp"
+        android:orientation="horizontal">
+
+        <!-- Vehicle Health Tile -->
+        <FrameLayout
+            android:id="@+id/btnVehicleHealth"
+            android:layout_width="0dp"
+            android:layout_height="120dp"
+            android:layout_marginEnd="12dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_card_blue_light"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginBottom="8dp"
+                    android:src="@drawable/ic_vehicle_health"
+                    android:tint="@color/black" />
+
+                <TextView
+                    android:layout_width="99dp"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="My Vehicle\nHealth"
+                    android:textColor="@color/black"
+                    android:textSize="14sp" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Export Tile -->
+        <FrameLayout
+            android:id="@+id/btnExport"
+            android:layout_width="0dp"
+            android:layout_height="120dp"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_card_blue_light"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground">
+
+            <LinearLayout
+                android:layout_width="99dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <ImageView
+                    android:layout_width="61dp"
+                    android:layout_height="54dp"
+                    android:layout_marginBottom="8dp"
+                    android:src="@drawable/ic_export"
+                    android:tint="@color/black" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="Export Data\nRecords"
+                    android:textColor="@color/black"
+                    android:textSize="14sp" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- Spacer to push disconnect to bottom -->
+
+    <LinearLayout
+        android:id="@+id/btnSettings"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/bg_card_blue_light"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_settings"
+            android:tint="@color/black" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_weight="1"
+            android:text="Bluetooth Settings"
+            android:textColor="@color/black"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Danger Zone: Disconnect -->
+    <Button
+        android:id="@+id/btnDisconnect"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:background="@drawable/bg_button_white_pill"
+        android:backgroundTint="@color/danger_red"
+        android:elevation="0dp"
+        android:foreground="?attr/selectableItemBackground"
+        android:text="Disconnect &amp; Stop Service"
+        android:textColor="@color/white"
+        android:textSize="14sp" />
+
+    <!-- Dummy ListView to satisfy code references until refactored -->
+    <ListView
+        android:id="@+id/deviceList"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone" />
+
+</LinearLayout>

@@ -1,0 +1,56 @@
+{
+  "coolant": {
+    "sensor": "COOLANT_TEMPERATURE",
+    "unit": "°C",
+    "label": "Engine Overheating",
+    "advice": "STOP DRIVING IMMEDIATELY. Allow engine to cool and check coolant level."
+  },
+  "voltage": {
+    "sensor": "CONTROL_MODULE_VOLTAGE",
+    "unit": "V",
+    "label": "Battery/Charging Issue",
+    "advice": "Check battery terminals for corrosion or have the alternator tested."
+  },
+  "ltft": {
+    "sensor": "LONG_TERM_FUEL_TRIM_BANK_1",
+    "unit": "%",
+    "label": "Fuel System Imbalance",
+    "advice": "Potential vacuum leak or fuel injector issue. Inspect intake system."
+  },
+  "stft": {
+    "sensor": "SHORT_TERM_FUEL_TRIM_BANK_1",
+    "unit": "%",
+    "label": "Fuel System Imbalance",
+    "advice": "Check air filter and oxygen sensors."
+  },
+  "load": {
+    "sensor": "ENGINE_LOAD",
+    "unit": "%",
+    "label": "Excessive Engine Load",
+    "advice": "Reduce speed and avoid heavy acceleration or reduce the AC blower speed. Possible engine strain."
+  },
+  "intake_temp": {
+    "sensor": "INTAKE_AIR_TEMP",
+    "unit": "°C",
+    "label": "High Intake Temp",
+    "advice": "Check air intake for obstructions or heat soak issues."
+  },
+  "cat_temp": {
+    "sensor": "CATALYST_TEMPERATURE_BANK1_SENSOR1",
+    "unit": "°C",
+    "label": "Catalytic Overheating",
+    "advice": "Engine may be running too high. Inspect spark plugs and injectors."
+  },
+  "fuel_level": {
+    "sensor": "FUEL_TANK",
+    "unit": "%",
+    "label": "Low Fuel Level",
+    "advice": "Refuel as soon as possible to avoid fuel pump damage."
+  },
+  "equiv_ratio": {
+    "sensor": "FUEL_AIR_COMMANDED_EQUIV_RATIO",
+    "unit": "",
+    "label": "Abnormal Air-Fuel Ratio",
+    "advice": "System cannot maintain stable fuel mixture. Check MAF sensor."
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "coolant_high": 110.0,
+  "voltage_low": 11.5,
+  "voltage_high": 15.0,
+  "ltft_high": 25.0,
+  "ltft_low": -25.0,
+  "stft_high": 25.0,
+  "stft_low": -25.0,
+  "load_high": 95.0,
+  "intake_temp_high": 70.0,
+  "cat_temp_high": 800.0,
+  "fuel_level_low": 10.0,
+  "equiv_ratio_high": 1.3,
+  "equiv_ratio_low": 0.7
+}

@@ -1,0 +1,10 @@
+{
+  "speed": "vehicle_speed",
+  "rpm": "engine_rpm",
+  "calc_load": "engine_load",
+  "throttle_abs": "throttle_position",
+  "throttle_rel": "relative_throttle_position",
+  "pedal_d": "accelerator_pedal_d",
+  "pedal_e": "accelerator_pedal_e",
+  "throttle_cmd": "throttle_actuator_control"
+}

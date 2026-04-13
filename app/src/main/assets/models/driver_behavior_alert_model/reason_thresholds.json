@@ -1,0 +1,10 @@
+{
+  "speed_high": 110.0,
+  "rpm_high": 3000.0,
+  "calc_load_high": 85.0,
+  "throttle_abs_high": 80.0,
+  "throttle_rel_high": 70.0,
+  "pedal_d_high": 75.0,
+  "pedal_e_high": 75.0,
+  "throttle_cmd_high": 80.0
+}
