@@ -70,7 +70,6 @@ class ExportActivity : AppCompatActivity() {
                 exportStart = calendar.timeInMillis
             }
             "Last Driving session", "All time" -> {
-                 // Handled explicitly inside performExport database querying segment.
                  exportStart = 0
             }
         }

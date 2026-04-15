@@ -16,9 +16,9 @@ class DriverBehaviorAnalyzer(private val context: Context) {
     private var scales = FloatArray(0)
     private var featureNames = listOf<String>()
 
-    // Data-driven reason configuration loaded from model assets
-    private var reasonThresholds = mutableMapOf<String, Double>()   // e.g. "rpm_high" -> 3000.0
-    private var reasonFeatureMap = mutableMapOf<String, String>()   // e.g. "rpm" -> "engine_rpm"
+    // Reason configuration from model assets
+    private var reasonThresholds = mutableMapOf<String, Double>()   // "rpm_high" -> 3000.0
+    private var reasonFeatureMap = mutableMapOf<String, String>()   // "rpm" -> "engine_rpm"
     
     init {
         try {
@@ -170,7 +170,7 @@ class DriverBehaviorAnalyzer(private val context: Context) {
                 }
             }
 
-            // Fallback: if no specific threshold was exceeded, add a generic reason
+            // if no specific threshold was exceeded, add a generic reason
             if (reasonsList.isEmpty()) {
                 reasonsList.add("High dynamic variance based on sensors")
             }

@@ -47,8 +47,6 @@ class MainActivity : ComponentActivity() {
     
     // Database
     private lateinit var database: AppDatabase
-    
-    // Export State removed - Logic moved to ExportActivity
 
     
     // Permission State
@@ -178,8 +176,7 @@ class MainActivity : ComponentActivity() {
                     .into(ivProfile)
             } else {
                 Log.d("AutoKITT", "Photo URL is null for account: ${account.email}")
-                // Optional: Show a toast if debugging is needed
-                // Toast.makeText(this, "No profile photo found in account", Toast.LENGTH_SHORT).show()
+                // Toast.makeText(this, "Profile photo not found in account", Toast.LENGTH_SHORT).show()
             }
         } else {
 
@@ -274,9 +271,8 @@ class MainActivity : ComponentActivity() {
 
     private fun showPairedDevicesDialog() {
         // Permissions already checked by caller logic via pendingAction pattern
-        // But double check doesn't hurt if called directly
         
-        // On Android 12+ (API 31+), we need BLUETOOTH_CONNECT
+        // On Android 12+ (API 31+), need BLUETOOTH_CONNECT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                  return
@@ -302,7 +298,6 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
-    // Export logic moved to ExportActivity
 
 
     private fun startScan() {

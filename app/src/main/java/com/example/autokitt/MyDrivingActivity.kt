@@ -68,11 +68,10 @@ class MyDrivingActivity : AppCompatActivity() {
     }
 
     private fun updateTab(tab: String) {
-        // Reset styles (Transparent background, Black text)
         val transparent = Color.TRANSPARENT
         val black = Color.BLACK
         val white = Color.WHITE
-        val blue = ContextCompat.getColor(this, R.color.blue_primary) // Or hardcode a blue if needed
+        val blue = ContextCompat.getColor(this, R.color.blue_primary)
 
         btnLastTrip.backgroundTintList = ColorStateList.valueOf(transparent)
         btnLastTrip.setTextColor(black)

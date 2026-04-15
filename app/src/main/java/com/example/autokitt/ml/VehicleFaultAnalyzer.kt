@@ -189,7 +189,7 @@ class VehicleFaultAnalyzer(private val context: Context) {
         val adviceText: String
 
         if (isFaulty) {
-            // Determine severity tier based on probability
+            // Determine severity layers based on probability
             when {
                 probability >= 0.85f -> {
                     status = "Faulty"

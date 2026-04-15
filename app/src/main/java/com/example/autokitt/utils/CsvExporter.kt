@@ -54,6 +54,5 @@ object CsvExporter {
         }
         
         writer.flush()
-        // No closing of outputStream here, the caller (ExportActivity) handles it with .use {}
     }
 }

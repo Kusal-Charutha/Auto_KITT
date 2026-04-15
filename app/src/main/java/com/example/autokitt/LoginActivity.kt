@@ -22,8 +22,9 @@ class LoginActivity : AppCompatActivity() {
         setContentView(R.layout.activity_login)
 
         // Configure sign-in to request the user's ID, email address, and basic
-        // profile. ID and basic profile are included in DEFAULT_SIGN_IN.
+        // profile ID and basic profile are included in DEFAULT_SIGN_IN.
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            // https://console.cloud.google.com/auth/clients?project=autokitt
             .requestIdToken("33413763022-mr47rgouvcocfofoendvirhb3njpptmt.apps.googleusercontent.com")
             .requestEmail()
             .requestProfile()
@@ -32,7 +33,7 @@ class LoginActivity : AppCompatActivity() {
         // Build a GoogleSignInClient with the options specified by gso.
         mGoogleSignInClient = GoogleSignIn.getClient(this, gso)
 
-        // Set the dimensions of the sign-in button.
+        // Set the size of the sign-in button.
         val signInButton = findViewById<android.view.View>(R.id.sign_in_button)
 
         signInButton.setOnClickListener {
@@ -54,7 +55,6 @@ class LoginActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         // Check for existing Google Sign In account, if the user is already signed in
-        // the GoogleSignInAccount will be non-null.
         val account = GoogleSignIn.getLastSignedInAccount(this)
         updateUI(account)
     }
@@ -67,10 +67,9 @@ class LoginActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
-        // Result returned from launching the Intent from GoogleSignInClient.getSignInIntent(...);
+        // Result returned from launching the Intent from GoogleSignInClient.getSignInIntent();
         if (requestCode == RC_SIGN_IN) {
-            // The Task returned from this call is always completed, no need to attach
-            // a listener.
+            // The Task returned from this call is always completed, no need to attach a listener.
             val task = GoogleSignIn.getSignedInAccountFromIntent(data)
             handleSignInResult(task)
         }
@@ -83,7 +82,6 @@ class LoginActivity : AppCompatActivity() {
             updateUI(account)
         } catch (e: ApiException) {
             // The ApiException status code indicates the detailed failure reason.
-            // Please refer to the GoogleSignInStatusCodes class reference for more information.
             Toast.makeText(this, "Sign-in failed with code: " + e.statusCode, Toast.LENGTH_LONG).show()
             updateUI(null)
         }

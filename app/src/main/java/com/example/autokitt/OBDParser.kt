@@ -1,14 +1,8 @@
 package com.example.autokitt
 
 object OBDParser {
-
-    /**
-     * Parses the raw hex response from the ELM327 adapter.
-     * Expected format: "41 XX A B ..." or similar.
-     * We strip spaces and look for the response prefix (41 for mode 01).
-     */
     fun parse(cmd: String, rawResponse: String): Double {
-        // Basic cleanup: remove spaces, newlines, and prompt characters like '>'
+        // Basic cleanup: remove spaces, newlines, and characters like '>'
         val cleaned = rawResponse.replace("\\s".toRegex(), "").replace(">", "").trim()
 
         // Check for common error responses or no data

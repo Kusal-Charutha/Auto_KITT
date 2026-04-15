@@ -1,5 +1,6 @@
 package com.example.autokitt
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
@@ -28,6 +29,7 @@ import java.io.OutputStream
 import java.util.UUID
 import android.media.AudioAttributes
 import android.net.Uri
+import androidx.annotation.RequiresPermission
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -68,7 +70,7 @@ class OBDForegroundService : Service() {
     
     private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
-    // --- Expanded Sensor State ---
+
     private val sensorDataMap = mutableMapOf<String, Double>()
     
     // Diagnostic sensors queue for round-robin polling
@@ -153,13 +155,14 @@ class OBDForegroundService : Service() {
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, createNotification("Connecting to OBD-II..."))
             
-            serviceScope.launch {
+            serviceScope.launch @androidx.annotation.RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT) {
                 sessionId = System.currentTimeMillis()
                 connectAndPoll(address)
             }
         }
         return START_STICKY
     }
+
 
     private suspend fun connectAndPoll(address: String) {
         val adapter = BluetoothAdapter.getDefaultAdapter()
@@ -214,12 +217,12 @@ class OBDForegroundService : Service() {
 
 
 
-                        // 1. UI Broadcast (Legacy support for Dashboard)
+                        // UI Broadcast (Legacy support for Dashboard)
                         if (rpm != -1.0 && speed != -1.0) {
                             broadcastData(rpm, speed, load, coolant, throttle)
                         }
                         
-                        // 1.5 Poll Physical DTCs (Every 60s)
+                        // Poll Physical DTCs (Every 60s)
                         if (System.currentTimeMillis() - lastDtcPollTime > DTC_POLL_INTERVAL_MS) {
                             lastDtcPollTime = System.currentTimeMillis()
                             val dtcs = pollDTCs()
@@ -240,7 +243,7 @@ class OBDForegroundService : Service() {
                             }
                         }
 
-                        // 3. Stationary Heuristics (Always evaluate regardless of speed check)
+                        // Stationary Heuristics (Always evaluate regardless of speed check)
                         processStationaryAlerts(speed, rpm)
 
                         if (rpm > 0.0) { // Unblocked: Analyse whenever engine is ON
@@ -296,7 +299,7 @@ class OBDForegroundService : Service() {
                             }
                         }
 
-                        // 4. Persistence & Sync
+                        // Persistence & Sync
                         if (rpm != -1.0) {
                             saveAndSyncData(rpm, speed, load, throttle, coolant)
                         }
